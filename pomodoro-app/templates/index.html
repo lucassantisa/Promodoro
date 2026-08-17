@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Promodoro</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-base: #0b0f19;
+            --bg-panel: rgba(26, 32, 53, 0.6);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #8b5cf6;
+            --accent-glow: rgba(139, 92, 246, 0.4);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+            overflow-y: auto;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+            margin: 0;
+            padding: 40px 0;
+        }
+
+        .ambient-light {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            z-index: 0;
+            opacity: 0.5;
+            animation: float 10s infinite alternate ease-in-out;
+        }
+
+        .light-1 { width: 400px; height: 400px; background: #4c1d95; top: -100px; left: -100px; }
+        .light-2 { width: 300px; height: 300px; background: #0f766e; bottom: -50px; right: -50px; animation-delay: -5s; }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        .app-container {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px 45px;
+            width: 90%;
+            max-width: 620px;
+            z-index: 10;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .profile-column {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+
+        .timer-column {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .aside-column {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            margin-top: 20px;
+        }
+
+        /* Encabezado: perfil y accesos rápidos, todo centrado en una sola fila */
+        .user-header {
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .profile-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-main);
+            transition: opacity 0.2s;
+        }
+        .profile-section:hover { opacity: 0.8; }
+
+        .profile-avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent);
+        }
+
+        .user-details .username { font-weight: 600; font-size: 0.95rem; }
+        .user-details .points-badge { font-size: 0.8rem; color: #a78bfa; }
+
+        /* Badge de rango, con look de "material" (madera, piedra, hierro, oro, diamante) */
+        .rank-badge {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            border-radius: 14px;
+            margin-top: 10px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 4px 10px rgba(0, 0, 0, 0.25);
+            max-height: 100px;
+            opacity: 1;
+            transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease, padding 0.3s ease, border-width 0.3s ease;
+        }
+        .rank-badge.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-width: 0;
+        }
+        .rank-badge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -60%;
+            width: 35%;
+            height: 100%;
+            background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            transform: skewX(-20deg);
+        }
+        .rank-icon {
+            font-size: 1.5rem;
+            line-height: 1;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+            flex-shrink: 0;
+        }
+        .rank-info { display: flex; flex-direction: column; line-height: 1.25; }
+        .rank-name { font-weight: 700; font-size: 0.95rem; }
+        .rank-material { font-size: 0.72rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.6px; }
+
+        /* Fila con el control para minimizar/mostrar el rango (fuera del badge,
+           para que siga visible aunque el badge esté completamente oculto) */
+        .rank-toggle-row { width: 100%; display: flex; justify-content: flex-end; margin-top: 12px; }
+        .rank-toggle-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-family: 'Poppins', sans-serif;
+            cursor: pointer;
+            padding: 5px 8px;
+            border-radius: 8px;
+            transition: color 0.2s ease, background 0.2s ease;
+        }
+        .rank-toggle-btn:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.05); }
+        .rank-toggle-btn i { font-size: 0.7rem; transition: transform 0.3s ease; }
+        .rank-toggle-btn.collapsed i { transform: rotate(-90deg); }
+
+        .rank-madera   { background: linear-gradient(135deg, #b9895a, #7a5230); color: #fff3e0; border-color: #5c3d1f; }
+        .rank-piedra   { background: linear-gradient(135deg, #a8adb5, #686e78); color: #f3f4f6; border-color: #464b52; }
+        .rank-hierro   { background: linear-gradient(135deg, #eef2f6, #a9b4c2); color: #1e293b; border-color: #7c8898; }
+        .rank-oro      { background: linear-gradient(135deg, #ffe38a, #d4a017); color: #4a3200; border-color: #a5760a; }
+        .rank-diamante { background: linear-gradient(135deg, #baf6ff, #34d3ee, #0891b2); color: #06313f; border-color: #0e7490; }
+
+        .nav-links { display: flex; gap: 14px; font-size: 0.9rem; width: auto; }
+        .nav-links a { color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+        .nav-links a:hover { color: var(--text-main); }
+        .nav-links a.logout { color: #ef4444; }
+
+        .top-bar {
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            row-gap: 10px;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .title { font-size: 1.2rem; font-weight: 600; letter-spacing: 1px; color: var(--accent); }
+
+        .music-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+        .music-btn:hover { background: rgba(255, 255, 255, 0.1); transform: scale(1.05); }
+        .music-btn.playing { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 15px var(--accent-glow); }
+
+        .music-controls { display: flex; align-items: center; gap: 8px; }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 0 12px;
+            height: 40px;
+        }
+        .volume-control .volume-icon { color: var(--text-muted); font-size: 0.8rem; width: 12px; text-align: center; }
+        #volume-slider {
+            width: 70px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .track-select {
+            display: flex;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 3px;
+        }
+        .track-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+        .track-btn:hover { color: var(--text-main); }
+        .track-btn.active {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        /* Carpetas de estudio (puntos por ramo) */
+        .folders-section { width: 100%; margin-bottom: 20px; }
+
+        .folders-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .folders-title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
+
+        .add-folder-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--accent);
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        .add-folder-btn:hover { background: rgba(139, 92, 246, 0.15); transform: scale(1.05); }
+
+        .folders-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-height: 96px;
+            overflow-y: auto;
+        }
+
+        .folder-chip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 7px 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.8rem;
+            transition: all 0.2s ease;
+        }
+        .folder-chip:hover { border-color: var(--accent); color: var(--text-main); }
+        .folder-chip.active {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+        .folder-name { font-weight: 600; }
+        .folder-points { opacity: 0.85; font-size: 0.75rem; white-space: nowrap; }
+        .folder-delete {
+            opacity: 0.5;
+            font-size: 0.75rem;
+            line-height: 1;
+            padding: 2px;
+            transition: opacity 0.2s ease, color 0.2s ease;
+        }
+        .folder-delete:hover { opacity: 1; color: #ef4444; }
+
+        .new-folder-input { display: flex; gap: 6px; margin-top: 10px; }
+        .new-folder-input.hidden { display: none; }
+        #new-folder-name {
+            flex: 1;
+            min-width: 0;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.85rem;
+        }
+        #new-folder-name:focus { outline: none; border-color: var(--accent); }
+        #confirm-new-folder, #cancel-new-folder {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            width: 36px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        #confirm-new-folder { color: #4ade80; }
+        #cancel-new-folder { color: #ef4444; }
+        #confirm-new-folder:hover, #cancel-new-folder:hover { background: rgba(255, 255, 255, 0.1); }
+
+        /* Fechas de prueba */
+        .exam-section { width: 100%; margin-bottom: 20px; }
+
+        .exam-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .exam-title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .exam-header-actions { display: flex; gap: 6px; }
+
+        .exam-icon-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--accent);
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        .exam-icon-btn:hover { background: rgba(139, 92, 246, 0.15); transform: scale(1.05); }
+        .exam-icon-btn.collapse-btn { color: var(--text-muted); }
+        .exam-icon-btn.collapse-btn i { transition: transform 0.3s ease; }
+        .exam-section.collapsed .exam-icon-btn.collapse-btn i { transform: rotate(-90deg); }
+
+        .exam-body {
+            overflow: hidden;
+            max-height: 400px;
+            transition: max-height 0.35s ease, opacity 0.25s ease;
+            opacity: 1;
+        }
+        .exam-section.collapsed .exam-body { max-height: 0; opacity: 0; }
+
+        .exam-list { display: flex; flex-direction: column; gap: 8px; max-height: 160px; overflow-y: auto; }
+
+        .exam-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 9px 12px;
+            font-size: 0.85rem;
+        }
+        .exam-item.exam-today { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+        .exam-item.exam-past { opacity: 0.5; }
+
+        .exam-item-info { flex: 1; min-width: 0; }
+        .exam-item-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .exam-item-date { color: var(--text-muted); font-size: 0.75rem; }
+
+        .exam-item-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 4px 9px;
+            border-radius: 20px;
+            background: rgba(139, 92, 246, 0.15);
+            color: #a78bfa;
+            white-space: nowrap;
+        }
+        .exam-item.exam-today .exam-item-badge { background: var(--accent); color: white; }
+        .exam-item.exam-past .exam-item-badge { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+
+        .exam-item-delete {
+            color: var(--text-muted);
+            opacity: 0.6;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 4px;
+            transition: opacity 0.2s ease, color 0.2s ease;
+        }
+        .exam-item-delete:hover { opacity: 1; color: #ef4444; }
+
+        .exam-empty { color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 10px 0; }
+
+        .new-exam-input { display: flex; gap: 6px; margin-top: 10px; }
+        .new-exam-input.hidden { display: none; }
+        #new-exam-title, #new-exam-date {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.8rem;
+        }
+        #new-exam-title { flex: 2; min-width: 0; }
+        #new-exam-date { flex: 1.3; min-width: 0; color-scheme: dark; }
+        #new-exam-title:focus, #new-exam-date:focus { outline: none; border-color: var(--accent); }
+        #confirm-new-exam, #cancel-new-exam {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            width: 36px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        #confirm-new-exam { color: #4ade80; }
+        #cancel-new-exam { color: #ef4444; }
+        #confirm-new-exam:hover, #cancel-new-exam:hover { background: rgba(255, 255, 255, 0.1); }
+
+        .content-area { display: flex; flex-direction: column; align-items: center; margin-bottom: 25px; width: 100%; }
+
+        .main-display {
+            font-family: 'Space Mono', monospace;
+            font-size: 6.2rem;
+            font-weight: 700;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+            margin: 15px 0;
+            color: #ffffff;
+        }
+
+        .time-controls {
+            display: flex;
+            gap: 25px;
+            margin-top: 15px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        .time-controls label { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .time-controls input {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 8px;
+            border-radius: 6px;
+            width: 75px;
+            text-align: center;
+            font-family: 'Space Mono', monospace;
+            font-size: 1rem;
+        }
+
+        .action-buttons { display: flex; gap: 10px; width: 100%; }
+
+        .action-btn {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border: none;
+            padding: 14px 20px;
+            border-radius: 12px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Poppins', sans-serif;
+            flex: 1;
+        }
+        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px var(--accent-glow); }
+        .action-btn.secondary { background: transparent; border: 1px solid var(--border-color); }
+        .action-btn.secondary:hover { background: rgba(255,255,255,0.05); }
+
+        .skip-btn {
+            width: 100%;
+            margin-top: 12px;
+            background: transparent;
+            border: 1px dashed var(--accent);
+            color: var(--accent);
+        }
+        .skip-btn:hover { background: rgba(139, 92, 246, 0.1); transform: none; box-shadow: none; }
+
+        .redeem-btn {
+            width: 100%;
+            margin-top: 10px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 7px;
+            cursor: pointer;
+            opacity: 0.6;
+            border-radius: 8px;
+            transition: opacity 0.2s ease, color 0.2s ease, background 0.2s ease;
+        }
+        .redeem-btn:hover {
+            opacity: 1;
+            color: var(--accent);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .hidden { display: none !important; }
+
+        .equalizer { display: none; gap: 3px; height: 12px; align-items: flex-end; }
+        .music-btn.playing .equalizer { display: flex; }
+        .music-btn.playing .fa-music { display: none; }
+        .bar { width: 3px; background-color: var(--accent); border-radius: 3px; animation: equalize 1s infinite alternate ease-in-out; }
+        .bar:nth-child(1) { animation-duration: 0.7s; }
+        .bar:nth-child(2) { animation-duration: 0.5s; height: 8px; }
+        .bar:nth-child(3) { animation-duration: 0.9s; height: 12px; }
+
+        @keyframes equalize { 0% { height: 3px; } 100% { height: 12px; } }
+
+        @media (max-width: 480px) {
+            .app-container { padding: 28px 20px; }
+            .main-display { font-size: 4rem; }
+            .time-controls { gap: 15px; }
+            .time-controls input { width: 60px; }
+            .top-bar { flex-wrap: wrap; row-gap: 10px; }
+            .music-controls { flex-wrap: wrap; justify-content: flex-end; }
+            #volume-slider { width: 55px; }
+            .new-exam-input { flex-wrap: wrap; }
+            #new-exam-title, #new-exam-date { flex: 1 1 100%; }
+        }
+
+        /* Avisos no bloqueantes (fin de bloque / fin de descanso) */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            pointer-events: none;
+            padding: 0 16px;
+            width: 100%;
+        }
+        .toast {
+            background: rgba(19, 26, 43, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--accent);
+            color: var(--text-main);
+            padding: 14px 22px;
+            border-radius: 14px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 20px var(--accent-glow);
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            max-width: 420px;
+            text-align: center;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+
+        /* Buscador de usuarios */
+        .search-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+        }
+        .search-overlay.hidden { display: none; }
+
+        .search-modal {
+            background: #131a2b;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 25px;
+            width: 100%;
+            max-width: 400px;
+            max-height: 70vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        }
+
+        .search-modal-header { display: flex; gap: 10px; margin-bottom: 15px; }
+
+        #search-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 1rem;
+        }
+        #search-input:focus { outline: none; border-color: var(--accent); }
+
+        .close-search-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .close-search-btn:hover { background: rgba(255, 255, 255, 0.1); }
+
+        .search-results { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+        .search-result-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+        }
+
+        .search-result-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+
+        .search-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent);
+            flex-shrink: 0;
+        }
+
+        .search-username { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .search-points { color: #a78bfa; font-size: 0.85rem; font-weight: 600; white-space: nowrap; margin-left: auto; margin-right: 8px; }
+        .search-hint, .no-results { color: var(--text-muted); text-align: center; padding: 20px 0; font-size: 0.9rem; }
+
+        .follow-btn {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+            font-family: 'Poppins', sans-serif;
+        }
+        .follow-btn:hover { box-shadow: 0 6px 14px var(--accent-glow); }
+        .follow-btn.following {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+        .follow-btn.following:hover { border-color: #ef4444; color: #ef4444; box-shadow: none; }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-light light-1"></div>
+    <div class="ambient-light light-2"></div>
+
+    <audio id="bg-audio" loop data-current-track="lofi" src="https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3"></audio>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <div class="app-container">
+
+        <!-- Columna izquierda: todo lo relacionado al perfil -->
+        <div class="profile-column">
+            <div class="user-header">
+                <a href="/profile" class="profile-section" title="Editar Perfil">
+                    <img src="{{ user.profile_pic }}" alt="Avatar" class="profile-avatar">
+                    <div class="user-details">
+                        <div class="username">{{ user.username }}</div>
+                        <div class="points-badge"><span id="score">{{ user.points }}</span> 🏆 pts</div>
+                    </div>
+                </a>
+                <div class="nav-links">
+                    <a href="#" id="search-btn" title="Buscar usuarios"><i class="fas fa-search"></i></a>
+                    <a href="/profile" title="Perfil"><i class="fas fa-user-gear"></i></a>
+                    <a href="/logout" class="logout" title="Cerrar Sesión"><i class="fas fa-sign-out-alt"></i></a>
+                </div>
+            </div>
+
+            <div class="rank-badge rank-{{ rank.key }}" id="rank-badge">
+                <div class="rank-icon">{{ rank.icon }}</div>
+                <div class="rank-info">
+                    <span class="rank-name">{{ rank.name }}</span>
+                    <span class="rank-material">{{ rank.material }}</span>
+                </div>
+            </div>
+            <div class="rank-toggle-row">
+                <button class="rank-toggle-btn" id="toggle-rank-btn" title="Minimizar/Mostrar rango">
+                    <span id="rank-toggle-label">Ocultar rango</span>
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Columna central: temporizador y controles -->
+        <div class="timer-column">
+            <div class="top-bar">
+                <div class="title" id="mode-text">Estudio 📚</div>
+                <div class="music-controls">
+                    <div class="track-select">
+                        <button class="track-btn active" data-track="lofi" title="Lo-fi de estudio">🎧</button>
+                        <button class="track-btn" data-track="piano" title="Piano relajante">🎹</button>
+                    </div>
+                    <div class="volume-control" title="Volumen">
+                        <i class="fas fa-volume-down volume-icon"></i>
+                        <input type="range" id="volume-slider" min="0" max="100" value="30">
+                    </div>
+                    <button class="music-btn" id="music-toggle" title="Reproducir/Pausar Música">
+                        <i class="fas fa-music"></i>
+                        <div class="equalizer">
+                            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <div class="main-display" id="timer">25:00</div>
+
+                <div class="time-controls">
+                    <label>Estudio (min) <input type="number" id="study-time" value="25" min="1"></label>
+                    <label>Descanso (min) <input type="number" id="break-time" value="5" min="0"></label>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button class="action-btn" onclick="startTimer()">Iniciar</button>
+                <button class="action-btn secondary" onclick="pauseTimer()">Pausar</button>
+                <button class="action-btn secondary" onclick="resetTimer()">Reiniciar</button>
+            </div>
+            <button class="redeem-btn" id="redeem-points-btn" onclick="redeemPoints()">Canjear puntos ahora 💰</button>
+            <button class="action-btn skip-btn hidden" id="skip-break-btn" onclick="skipBreak()">Saltar descanso ⏭️</button>
+        </div>
+
+        <!-- Columna derecha: carpetas de estudio y fechas de prueba -->
+        <div class="aside-column">
+            <!-- Carpetas de estudio (puntos por ramo) -->
+            <div class="folders-section">
+                <div class="folders-header">
+                    <span class="folders-title">📁 Estudiando para</span>
+                    <button class="add-folder-btn" id="add-folder-btn" title="Nueva carpeta">+</button>
+                </div>
+                <div class="folders-list" id="folders-list"></div>
+                <div class="new-folder-input hidden" id="new-folder-input">
+                    <input type="text" id="new-folder-name" placeholder="Ej: MAT071" maxlength="30" autocomplete="off">
+                    <button id="confirm-new-folder" title="Crear"><i class="fas fa-check"></i></button>
+                    <button id="cancel-new-folder" title="Cancelar"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+
+            <!-- Fechas de prueba -->
+            <div class="exam-section" id="exam-section">
+                <div class="exam-header">
+                    <span class="exam-title">📅 Fechas de Prueba</span>
+                    <div class="exam-header-actions">
+                        <button class="exam-icon-btn" id="add-exam-btn" title="Agregar fecha">+</button>
+                        <button class="exam-icon-btn collapse-btn" id="toggle-exam-btn" title="Minimizar/Mostrar">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="exam-body" id="exam-body">
+                    <div class="exam-list" id="exam-list"></div>
+                    <div class="new-exam-input hidden" id="new-exam-input">
+                        <input type="text" id="new-exam-title" placeholder="Ej: Examen de Cálculo" maxlength="100" autocomplete="off">
+                        <input type="date" id="new-exam-date">
+                        <button id="confirm-new-exam" title="Guardar"><i class="fas fa-check"></i></button>
+                        <button id="cancel-new-exam" title="Cancelar"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal buscador de usuarios -->
+    <div class="search-overlay hidden" id="search-overlay">
+        <div class="search-modal">
+            <div class="search-modal-header">
+                <input type="text" id="search-input" placeholder="Buscar usuario..." autocomplete="off">
+                <button class="close-search-btn" id="close-search-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="search-results" id="search-results">
+                <p class="search-hint">Escribe un nombre de usuario para buscar.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const TRACKS = {
+            lofi: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
+            piano: 'https://archive.org/download/100-piano-music-for-relaxation-sleep-zen/100%20Piano%20Music%20For%20Relaxation%2C%20Sleep%2C%20Zen%20%282020%29/072.%20%20Musica%20Relajante%20%20-%20%20Piano%20Relajante.mp3'
+        };
+
+        const audio = document.getElementById('bg-audio');
+        const musicBtn = document.getElementById('music-toggle');
+        const trackButtons = document.querySelectorAll('.track-btn');
+        const volumeSlider = document.getElementById('volume-slider');
+        const volumeIcon = document.querySelector('.volume-icon');
+        let isMusicPlaying = false;
+        audio.volume = volumeSlider.value / 100;
+
+        function updateVolumeIcon() {
+            const val = parseInt(volumeSlider.value, 10);
+            volumeIcon.className = 'fas volume-icon ' +
+                (val === 0 ? 'fa-volume-mute' : val < 50 ? 'fa-volume-down' : 'fa-volume-up');
+        }
+
+        volumeSlider.addEventListener('input', () => {
+            audio.volume = volumeSlider.value / 100;
+            updateVolumeIcon();
+        });
+        updateVolumeIcon();
+
+        musicBtn.addEventListener('click', () => {
+            if (isMusicPlaying) {
+                audio.pause();
+                musicBtn.classList.remove('playing');
+            } else {
+                audio.play().then(() => {
+                    musicBtn.classList.add('playing');
+                }).catch(e => console.log("Audio bloqueado:", e));
+            }
+            isMusicPlaying = !isMusicPlaying;
+        });
+
+        trackButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const track = btn.dataset.track;
+                if (audio.dataset.currentTrack === track) return;
+
+                trackButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                const wasPlaying = isMusicPlaying;
+                audio.src = TRACKS[track];
+                audio.dataset.currentTrack = track;
+                audio.load();
+
+                if (wasPlaying) {
+                    audio.play().catch(e => console.log("Audio bloqueado:", e));
+                }
+            });
+        });
+
+        // --- Sonidos de aviso (fin de bloque / fin de descanso) ---
+        // Se generan con la Web Audio API para no depender de archivos externos.
+        let notifCtx = null;
+        function getAudioContext() {
+            if (!notifCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                notifCtx = new AudioCtx();
+            }
+            if (notifCtx.state === 'suspended') {
+                notifCtx.resume();
+            }
+            return notifCtx;
+        }
+
+        function playTone(frequency, duration, startTime, volume) {
+            const ctx = getAudioContext();
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            oscillator.type = 'sine';
+            oscillator.frequency.value = frequency;
+
+            const now = ctx.currentTime;
+            gainNode.gain.setValueAtTime(0, now + startTime);
+            gainNode.gain.linearRampToValueAtTime(volume, now + startTime + 0.02);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, now + startTime + duration);
+
+            oscillator.start(now + startTime);
+            oscillator.stop(now + startTime + duration + 0.05);
+        }
+
+        // Campanada ascendente: fin de un bloque de estudio 🏆
+        function playStudyEndSound() {
+            playTone(587.33, 0.18, 0, 0.25);    // D5
+            playTone(880.00, 0.4, 0.15, 0.25);  // A5
+        }
+
+        // Tres campanadas suaves: fin del descanso ☕ -> volver a estudiar
+        function playBreakEndSound() {
+            playTone(740.00, 0.15, 0, 0.2);     // F#5
+            playTone(587.33, 0.15, 0.15, 0.2);  // D5
+            playTone(740.00, 0.35, 0.3, 0.2);   // F#5
+        }
+
+        // --- Avisos no bloqueantes en pantalla (reemplazan a alert()) ---
+        const toastContainer = document.getElementById('toast-container');
+        function showNotice(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.add('show'));
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 350);
+            }, 4500);
+        }
+
+        let timeLeft = 25 * 60;
+        let timerInterval;
+        let isStudyMode = true;
+        let isRunning = false;
+
+        const timerDisplay = document.getElementById('timer');
+        const modeText = document.getElementById('mode-text');
+        const scoreDisplay = document.getElementById('score');
+        const studyTimeInput = document.getElementById('study-time');
+        const breakTimeInput = document.getElementById('break-time');
+        const skipBreakBtn = document.getElementById('skip-break-btn');
+        const redeemPointsBtn = document.getElementById('redeem-points-btn');
+
+        // --- Badge de rango (minimizable) ---
+        const rankBadge = document.getElementById('rank-badge');
+        const toggleRankBtn = document.getElementById('toggle-rank-btn');
+        const rankToggleLabel = document.getElementById('rank-toggle-label');
+
+        function setRankCollapsed(collapsed) {
+            rankBadge.classList.toggle('collapsed', collapsed);
+            toggleRankBtn.classList.toggle('collapsed', collapsed);
+            rankToggleLabel.textContent = collapsed ? 'Mostrar rango' : 'Ocultar rango';
+        }
+
+        // Recuerda si el usuario prefiere tener el rango minimizado
+        setRankCollapsed(localStorage.getItem('rankBadgeCollapsed') === 'true');
+
+        toggleRankBtn.addEventListener('click', () => {
+            const collapsed = !rankBadge.classList.contains('collapsed');
+            setRankCollapsed(collapsed);
+            localStorage.setItem('rankBadgeCollapsed', collapsed);
+        });
+
+        // --- Carpetas de estudio (puntos por ramo) ---
+        let folders = [];
+        let activeFolderId = null;
+
+        const foldersList = document.getElementById('folders-list');
+        const addFolderBtn = document.getElementById('add-folder-btn');
+        const newFolderInputWrap = document.getElementById('new-folder-input');
+        const newFolderNameInput = document.getElementById('new-folder-name');
+        const confirmNewFolderBtn = document.getElementById('confirm-new-folder');
+        const cancelNewFolderBtn = document.getElementById('cancel-new-folder');
+
+        function loadFolders() {
+            fetch('/folders')
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    folders = data.folders;
+                    if (activeFolderId === null || !folders.some(f => f.id === activeFolderId)) {
+                        activeFolderId = folders.length > 0 ? folders[0].id : null;
+                    }
+                    renderFolders();
+                })
+                .catch(err => console.error('Error al cargar carpetas:', err));
+        }
+
+        function renderFolders() {
+            foldersList.innerHTML = folders.map(f => `
+                <button type="button" class="folder-chip ${f.id === activeFolderId ? 'active' : ''}" data-folder-id="${f.id}">
+                    <span class="folder-name">${escapeHtml(f.name)}</span>
+                    <span class="folder-points">${f.points} pts</span>
+                    <i class="fas fa-times folder-delete" data-folder-id="${f.id}" title="Eliminar carpeta"></i>
+                </button>
+            `).join('');
+        }
+
+        foldersList.addEventListener('click', (e) => {
+            const deleteIcon = e.target.closest('.folder-delete');
+            if (deleteIcon) {
+                e.stopPropagation();
+                const id = parseInt(deleteIcon.dataset.folderId, 10);
+                const folder = folders.find(f => f.id === id);
+                if (folder && confirm(`¿Eliminar la carpeta "${folder.name}"? Sus ${folder.points} pts se restarán del total.`)) {
+                    deleteFolder(id);
+                }
+                return;
+            }
+            const chip = e.target.closest('.folder-chip');
+            if (chip) {
+                activeFolderId = parseInt(chip.dataset.folderId, 10);
+                renderFolders();
+            }
+        });
+
+        function deleteFolder(id) {
+            fetch(`/folders/${id}`, { method: 'DELETE' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && data.success) {
+                        scoreDisplay.textContent = data.new_total;
+                        loadFolders();
+                    } else if (data && data.error) {
+                        alert(data.error);
+                    }
+                })
+                .catch(err => console.error('Error al eliminar carpeta:', err));
+        }
+
+        addFolderBtn.addEventListener('click', () => {
+            newFolderInputWrap.classList.remove('hidden');
+            newFolderNameInput.value = '';
+            newFolderNameInput.focus();
+        });
+
+        cancelNewFolderBtn.addEventListener('click', () => {
+            newFolderInputWrap.classList.add('hidden');
+        });
+
+        function submitNewFolder() {
+            const name = newFolderNameInput.value.trim();
+            if (!name) return;
+
+            fetch('/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            })
+            .then(response => {
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return null;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data) return;
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                activeFolderId = data.folder.id;
+                newFolderInputWrap.classList.add('hidden');
+                loadFolders();
+            })
+            .catch(err => console.error('Error al crear carpeta:', err));
+        }
+
+        confirmNewFolderBtn.addEventListener('click', submitNewFolder);
+        newFolderNameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitNewFolder();
+            } else if (e.key === 'Escape') {
+                newFolderInputWrap.classList.add('hidden');
+            }
+        });
+
+        // --- Fechas de prueba ---
+        let examDates = [];
+
+        const examSection = document.getElementById('exam-section');
+        const examList = document.getElementById('exam-list');
+        const addExamBtn = document.getElementById('add-exam-btn');
+        const toggleExamBtn = document.getElementById('toggle-exam-btn');
+        const newExamInputWrap = document.getElementById('new-exam-input');
+        const newExamTitleInput = document.getElementById('new-exam-title');
+        const newExamDateInput = document.getElementById('new-exam-date');
+        const confirmNewExamBtn = document.getElementById('confirm-new-exam');
+        const cancelNewExamBtn = document.getElementById('cancel-new-exam');
+
+        // Recuerda si el usuario prefiere tener esta sección minimizada
+        if (localStorage.getItem('examSectionCollapsed') === 'true') {
+            examSection.classList.add('collapsed');
+        }
+
+        toggleExamBtn.addEventListener('click', () => {
+            examSection.classList.toggle('collapsed');
+            localStorage.setItem('examSectionCollapsed', examSection.classList.contains('collapsed'));
+        });
+
+        function loadExamDates() {
+            fetch('/exam_dates')
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    examDates = data.exam_dates;
+                    renderExamDates();
+                })
+                .catch(err => console.error('Error al cargar fechas de prueba:', err));
+        }
+
+        function daysUntil(dateStr) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const target = new Date(dateStr + 'T00:00:00');
+            return Math.round((target - today) / 86400000);
+        }
+
+        function formatExamDate(dateStr) {
+            const d = new Date(dateStr + 'T00:00:00');
+            return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+        }
+
+        function renderExamDates() {
+            if (examDates.length === 0) {
+                examList.innerHTML = '<p class="exam-empty">No tienes fechas de prueba agregadas.</p>';
+                return;
+            }
+
+            // El backend ya las entrega ordenadas por fecha (la más próxima primero).
+            examList.innerHTML = examDates.map(e => {
+                const diff = daysUntil(e.date);
+                let badge, stateClass = '';
+                if (diff < 0) {
+                    badge = 'Ya pasó';
+                    stateClass = 'exam-past';
+                } else if (diff === 0) {
+                    badge = '¡Hoy!';
+                    stateClass = 'exam-today';
+                } else if (diff === 1) {
+                    badge = 'Mañana';
+                } else {
+                    badge = `En ${diff} días`;
+                }
+
+                return `
+                    <div class="exam-item ${stateClass}">
+                        <div class="exam-item-info">
+                            <div class="exam-item-title">${escapeHtml(e.title)}</div>
+                            <div class="exam-item-date">${formatExamDate(e.date)}</div>
+                        </div>
+                        <span class="exam-item-badge">${badge}</span>
+                        <i class="fas fa-times exam-item-delete" data-exam-id="${e.id}" title="Eliminar"></i>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        examList.addEventListener('click', (e) => {
+            const deleteIcon = e.target.closest('.exam-item-delete');
+            if (!deleteIcon) return;
+            const id = parseInt(deleteIcon.dataset.examId, 10);
+            deleteExamDate(id);
+        });
+
+        function deleteExamDate(id) {
+            fetch(`/exam_dates/${id}`, { method: 'DELETE' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && data.success) loadExamDates();
+                })
+                .catch(err => console.error('Error al eliminar fecha de prueba:', err));
+        }
+
+        addExamBtn.addEventListener('click', () => {
+            if (examSection.classList.contains('collapsed')) {
+                examSection.classList.remove('collapsed');
+                localStorage.setItem('examSectionCollapsed', 'false');
+            }
+            newExamInputWrap.classList.remove('hidden');
+            newExamTitleInput.value = '';
+            newExamDateInput.value = new Date().toISOString().split('T')[0]; // sugiere hoy
+            newExamTitleInput.focus();
+        });
+
+        cancelNewExamBtn.addEventListener('click', () => {
+            newExamInputWrap.classList.add('hidden');
+        });
+
+        function submitNewExam() {
+            const title = newExamTitleInput.value.trim();
+            const date = newExamDateInput.value;
+
+            if (!title) { newExamTitleInput.focus(); return; }
+            if (!date) { newExamDateInput.focus(); return; }
+
+            fetch('/exam_dates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, date })
+            })
+            .then(response => {
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return null;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data) return;
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                newExamInputWrap.classList.add('hidden');
+                loadExamDates();
+            })
+            .catch(err => console.error('Error al guardar la fecha de prueba:', err));
+        }
+
+        confirmNewExamBtn.addEventListener('click', submitNewExam);
+        newExamTitleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitNewExam();
+            } else if (e.key === 'Escape') {
+                newExamInputWrap.classList.add('hidden');
+            }
+        });
+        newExamDateInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitNewExam();
+            }
+        });
+
+        // El estudio no puede bajar de 1 minuto y el descanso no puede ser negativo
+        function getValidatedMinutes(studyMode) {
+            const input = studyMode ? studyTimeInput : breakTimeInput;
+            const minValue = studyMode ? 1 : 0;
+            let val = parseInt(input.value);
+            if (isNaN(val) || val < minValue) {
+                val = minValue;
+                input.value = val;
+            }
+            return val;
+        }
+
+        studyTimeInput.addEventListener('change', () => getValidatedMinutes(true));
+        breakTimeInput.addEventListener('change', () => getValidatedMinutes(false));
+
+        function updateDisplay() {
+            let minutes = Math.floor(timeLeft / 60);
+            let seconds = timeLeft % 60;
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function startTimer() {
+            if (isRunning) return;
+            getAudioContext(); // Habilita el audio de los avisos sonoros (requiere gesto del usuario)
+            if (!isMusicPlaying) { musicBtn.click(); }
+
+            isRunning = true;
+
+            if (timeLeft % 60 === 0 && timeLeft / 60 === getValidatedMinutes(isStudyMode)) {
+                let mins = getValidatedMinutes(isStudyMode);
+                timeLeft = mins * 60;
+            }
+
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateDisplay();
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    isRunning = false;
+
+                    if (isStudyMode) {
+                        const minutesStudied = getValidatedMinutes(true);
+                        addPointsToAccount(minutesStudied);
+                        playStudyEndSound();
+                        showNotice(`¡Bloque de estudio terminado! Ganaste ${minutesStudied} puntos 🏆`);
+                        switchToBreak();
+                        startTimer(); // El descanso arranca solo
+                    } else {
+                        playBreakEndSound();
+                        showNotice("¡Descanso terminado! Volviendo al estudio.");
+                        switchToStudy();
+                    }
+                }
+            }, 1000);
+        }
+
+        function pauseTimer() {
+            clearInterval(timerInterval);
+            isRunning = false;
+        }
+
+        function resetTimer() {
+            pauseTimer();
+            let mins = getValidatedMinutes(isStudyMode);
+            timeLeft = mins * 60;
+            updateDisplay();
+        }
+
+        function switchToBreak() {
+            isStudyMode = false;
+            modeText.textContent = "Descanso ☕";
+            skipBreakBtn.classList.remove('hidden');
+            redeemPointsBtn.classList.add('hidden');
+            resetTimer();
+        }
+
+        function switchToStudy() {
+            isStudyMode = true;
+            modeText.textContent = "Estudio 📚";
+            skipBreakBtn.classList.add('hidden');
+            redeemPointsBtn.classList.remove('hidden');
+            resetTimer();
+        }
+
+        function skipBreak() {
+            if (isStudyMode) return;
+            switchToStudy();
+        }
+
+        // Canjea los puntos del tiempo ya estudiado en este bloque, sin esperar
+        // a que el temporizador llegue a 0 (ej: te tienes que ir antes de tiempo).
+        function redeemPoints() {
+            if (!isStudyMode) {
+                showNotice("Solo puedes canjear puntos durante un bloque de estudio.");
+                return;
+            }
+
+            const totalMinutes = getValidatedMinutes(true);
+            const elapsedSeconds = (totalMinutes * 60) - timeLeft;
+            const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+
+            if (elapsedMinutes < 1) {
+                showNotice("Todavía no llevas ni un minuto de estudio en este bloque.");
+                return;
+            }
+
+            const label = elapsedMinutes === 1 ? '1 punto' : `${elapsedMinutes} puntos`;
+            if (!confirm(`¿Canjear ${label} y terminar este bloque de estudio ahora?`)) {
+                return;
+            }
+
+            pauseTimer();
+            addPointsToAccount(elapsedMinutes);
+            playStudyEndSound();
+            showNotice(`¡Canjeaste ${label}! 🏆`);
+            resetTimer();
+        }
+
+        function addPointsToAccount(points) {
+            fetch('/add_points', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ points: points, folder_id: activeFolderId })
+            })
+            .then(response => {
+                if (response.status === 401) {
+                    // La sesión ya no es válida, hay que iniciar sesión de nuevo
+                    window.location.href = '/login';
+                    return null;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && data.success) {
+                    scoreDisplay.textContent = data.new_total;
+                    if (data.folder) {
+                        activeFolderId = data.folder.id;
+                        const existing = folders.find(f => f.id === data.folder.id);
+                        if (existing) {
+                            existing.points = data.folder.points;
+                        } else {
+                            folders.push(data.folder);
+                        }
+                        renderFolders();
+                    }
+                }
+            })
+            .catch(err => console.error('Error al guardar los puntos:', err));
+        }
+
+        // --- Buscador de usuarios ---
+        const searchBtn = document.getElementById('search-btn');
+        const searchOverlay = document.getElementById('search-overlay');
+        const closeSearchBtn = document.getElementById('close-search-btn');
+        const searchInput = document.getElementById('search-input');
+        const searchResults = document.getElementById('search-results');
+        let searchTimeout;
+
+        function openSearch() {
+            searchOverlay.classList.remove('hidden');
+            searchInput.value = '';
+            searchResults.innerHTML = '<p class="search-hint">Escribe un nombre de usuario para buscar.</p>';
+            searchInput.focus();
+        }
+
+        function closeSearch() {
+            searchOverlay.classList.add('hidden');
+        }
+
+        searchBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openSearch();
+        });
+
+        closeSearchBtn.addEventListener('click', closeSearch);
+
+        searchOverlay.addEventListener('click', (e) => {
+            if (e.target === searchOverlay) closeSearch();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !searchOverlay.classList.contains('hidden')) closeSearch();
+        });
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function renderSearchResults(results) {
+            if (results.length === 0) {
+                searchResults.innerHTML = '<p class="no-results">No se encontraron usuarios.</p>';
+                return;
+            }
+            searchResults.innerHTML = results.map(u => `
+                <div class="search-result-item">
+                    <a href="/profile/${encodeURIComponent(u.username)}" class="search-result-link">
+                        <img src="${escapeHtml(u.profile_pic)}" class="search-avatar" alt="Avatar">
+                        <span class="search-username">${escapeHtml(u.username)}</span>
+                    </a>
+                    <span class="search-points">${u.points} 🏆</span>
+                    <button class="follow-btn ${u.is_following ? 'following' : ''}"
+                            data-username="${escapeHtml(u.username)}"
+                            data-following="${u.is_following ? 'true' : 'false'}">
+                        ${u.is_following ? 'Siguiendo' : 'Seguir'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Seguir / dejar de seguir directamente desde los resultados de búsqueda
+        searchResults.addEventListener('click', (e) => {
+            const btn = e.target.closest('.follow-btn');
+            if (!btn) return;
+
+            const username = btn.dataset.username;
+            const currentlyFollowing = btn.dataset.following === 'true';
+            const endpoint = currentlyFollowing ? `/unfollow/${encodeURIComponent(username)}` : `/follow/${encodeURIComponent(username)}`;
+
+            btn.disabled = true;
+            fetch(endpoint, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) return;
+                    btn.dataset.following = data.is_following ? 'true' : 'false';
+                    btn.classList.toggle('following', data.is_following);
+                    btn.textContent = data.is_following ? 'Siguiendo' : 'Seguir';
+                })
+                .catch(err => console.error('Error al actualizar seguimiento:', err))
+                .finally(() => { btn.disabled = false; });
+        });
+
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            const query = searchInput.value.trim();
+
+            if (query.length === 0) {
+                searchResults.innerHTML = '<p class="search-hint">Escribe un nombre de usuario para buscar.</p>';
+                return;
+            }
+
+            searchTimeout = setTimeout(() => {
+                fetch(`/search_users?q=${encodeURIComponent(query)}`)
+                    .then(response => {
+                        if (response.status === 401) {
+                            window.location.href = '/login';
+                            return null;
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data) renderSearchResults(data.results);
+                    })
+                    .catch(err => console.error('Error al buscar usuarios:', err));
+            }, 300);
+        });
+
+        updateDisplay();
+        loadFolders();
+        loadExamDates();
+    </script>
+</body>
+</html>

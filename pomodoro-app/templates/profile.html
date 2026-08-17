@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ profile_user.username }} - Perfil - Promodoro</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-base: #0b0f19;
+            --bg-panel: rgba(26, 32, 53, 0.6);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #8b5cf6;
+            --accent-glow: rgba(139, 92, 246, 0.4);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+            padding: 40px 16px;
+            overflow-x: hidden;
+        }
+
+        .ambient-light {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(100px);
+            z-index: 0;
+            opacity: 0.5;
+            animation: float 10s infinite alternate ease-in-out;
+        }
+        .light-1 { width: 400px; height: 400px; background: #4c1d95; top: -100px; left: -100px; }
+        .light-2 { width: 300px; height: 300px; background: #0f766e; bottom: -50px; right: -50px; animation-delay: -5s; }
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        .profile-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 620px;
+            z-index: 10;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        /* --- Cabecera del perfil --- */
+        .profile-top {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        .big-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid var(--accent);
+            box-shadow: 0 0 25px var(--accent-glow);
+            margin-bottom: 14px;
+        }
+
+        .profile-username { font-size: 1.5rem; font-weight: 600; }
+
+        .own-badge {
+            margin-top: 8px;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .follow-btn {
+            margin-top: 12px;
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border: none;
+            padding: 10px 26px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Poppins', sans-serif;
+        }
+        .follow-btn:hover { box-shadow: 0 8px 18px var(--accent-glow); transform: translateY(-1px); }
+        .follow-btn.following {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+        .follow-btn.following:hover { border-color: #ef4444; color: #ef4444; box-shadow: none; }
+
+        .follow-btn.small {
+            margin-top: 0;
+            padding: 6px 16px;
+            font-size: 0.8rem;
+            flex-shrink: 0;
+        }
+
+        /* Badge de rango, con look de "material" (madera, piedra, hierro, oro, diamante) */
+        .rank-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 18px;
+            border-radius: 14px;
+            margin-top: 14px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 4px 10px rgba(0, 0, 0, 0.25);
+        }
+        .rank-badge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -60%;
+            width: 35%;
+            height: 100%;
+            background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            transform: skewX(-20deg);
+        }
+        .rank-icon { font-size: 1.5rem; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); flex-shrink: 0; }
+        .rank-info { display: flex; flex-direction: column; line-height: 1.25; text-align: left; }
+        .rank-name { font-weight: 700; font-size: 0.95rem; }
+        .rank-material { font-size: 0.72rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.6px; }
+
+        .rank-madera   { background: linear-gradient(135deg, #b9895a, #7a5230); color: #fff3e0; border-color: #5c3d1f; }
+        .rank-piedra   { background: linear-gradient(135deg, #a8adb5, #686e78); color: #f3f4f6; border-color: #464b52; }
+        .rank-hierro   { background: linear-gradient(135deg, #eef2f6, #a9b4c2); color: #1e293b; border-color: #7c8898; }
+        .rank-oro      { background: linear-gradient(135deg, #ffe38a, #d4a017); color: #4a3200; border-color: #a5760a; }
+        .rank-diamante { background: linear-gradient(135deg, #baf6ff, #34d3ee, #0891b2); color: #06313f; border-color: #0e7490; }
+
+        /* --- Fila de estadísticas --- */
+        .stats-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            margin-top: 28px;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            padding: 18px 0;
+        }
+        .stat-box {
+            flex: 1;
+            max-width: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 12px;
+            font-family: 'Poppins', sans-serif;
+            transition: background 0.2s ease;
+        }
+        .stat-box:not(.static):hover { background: rgba(255, 255, 255, 0.05); }
+        .stat-box strong { font-size: 1.3rem; }
+        .stat-box span { font-size: 0.8rem; color: var(--text-muted); }
+
+        /* --- Buscador de personas para seguir --- */
+        .find-people { margin-top: 24px; }
+        .find-people label { font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 8px; }
+        .find-input {
+            width: 100%;
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: white;
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.95rem;
+            outline: none;
+        }
+        .find-input:focus { border-color: var(--accent); }
+        .find-results { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+        /* --- Tabs de seguidores / siguiendo --- */
+        .tabs-nav {
+            display: flex;
+            gap: 8px;
+            margin-top: 26px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .tab-btn.active { color: var(--text-main); border-bottom-color: var(--accent); }
+
+        .tab-panel { display: none; padding-top: 14px; max-height: 340px; overflow-y: auto; }
+        .tab-panel.active { display: flex; flex-direction: column; gap: 8px; }
+
+        .person-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+        }
+        .person-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+        .person-avatar {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent);
+            flex-shrink: 0;
+        }
+        .person-name { font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .person-points { color: #a78bfa; font-size: 0.8rem; white-space: nowrap; margin-left: auto; margin-right: 8px; }
+
+        .empty-hint { color: var(--text-muted); text-align: center; padding: 24px 0; font-size: 0.9rem; }
+
+        /* --- Editar foto de perfil --- */
+        .edit-photo-card { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--border-color); }
+        .edit-photo-card h3 { font-size: 1rem; margin-bottom: 14px; color: var(--text-muted); font-weight: 600; }
+
+        form.photo-form { display: flex; flex-direction: column; gap: 12px; }
+        .file-input-wrapper { display: flex; flex-direction: column; gap: 8px; }
+        input[type="file"] {
+            padding: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+        .btn {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Poppins', sans-serif;
+        }
+        .btn:hover { box-shadow: 0 10px 20px var(--accent-glow); transform: translateY(-2px); }
+
+        .error-msg {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            text-align: center;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 26px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .back-link:hover { color: var(--text-main); }
+
+        @media (max-width: 480px) {
+            .profile-card { padding: 28px 20px; }
+            .stat-box strong { font-size: 1.1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-light light-1"></div>
+    <div class="ambient-light light-2"></div>
+
+    <div class="profile-card">
+
+        <!-- Cabecera -->
+        <div class="profile-top">
+            <img src="{{ profile_user.profile_pic }}" alt="Foto de Perfil" class="big-avatar" id="avatar-preview">
+            <div class="profile-username">{{ profile_user.username }}</div>
+
+            {% if is_own %}
+                <div class="own-badge">Este es tu perfil</div>
+            {% else %}
+                <button class="follow-btn {{ 'following' if is_following_profile else '' }}"
+                        id="main-follow-btn"
+                        data-username="{{ profile_user.username }}"
+                        data-following="{{ 'true' if is_following_profile else 'false' }}">
+                    {{ 'Siguiendo' if is_following_profile else 'Seguir' }}
+                </button>
+            {% endif %}
+
+            <div class="rank-badge rank-{{ rank.key }}">
+                <div class="rank-icon">{{ rank.icon }}</div>
+                <div class="rank-info">
+                    <span class="rank-name">{{ rank.name }}</span>
+                    <span class="rank-material">{{ rank.material }}</span>
+                </div>
+            </div>
+
+            <div class="stats-row">
+                <div class="stat-box static">
+                    <strong>{{ profile_user.points }}</strong>
+                    <span>Puntos 🏆</span>
+                </div>
+                <button class="stat-box" data-tab-target="followers">
+                    <strong id="followers-count">{{ profile_user.followers_count }}</strong>
+                    <span>Seguidores</span>
+                </button>
+                <button class="stat-box" data-tab-target="following">
+                    <strong id="following-count">{{ profile_user.following_count }}</strong>
+                    <span>Siguiendo</span>
+                </button>
+            </div>
+        </div>
+
+        {% if is_own %}
+        <!-- Buscador para encontrar y seguir a otras personas -->
+        <div class="find-people">
+            <label>Buscar personas para seguir</label>
+            <input type="text" class="find-input" id="find-input" placeholder="Buscar por nombre de usuario..." autocomplete="off">
+            <div class="find-results" id="find-results"></div>
+        </div>
+        {% endif %}
+
+        <!-- Tabs: Seguidores / Siguiendo -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" data-tab-target="followers">Seguidores</button>
+            <button class="tab-btn" data-tab-target="following">Siguiendo</button>
+        </div>
+
+        <div class="tab-panel active" id="panel-followers">
+            {% if followers %}
+                {% for p in followers %}
+                <div class="person-row">
+                    <a href="{{ '/profile' if p.id == user.id else '/profile/' ~ p.username }}" class="person-link">
+                        <img src="{{ p.profile_pic }}" class="person-avatar" alt="Avatar">
+                        <span class="person-name">{{ p.username }}</span>
+                    </a>
+                    <span class="person-points">{{ p.points }} 🏆</span>
+                    {% if p.id != user.id %}
+                    <button class="follow-btn small {{ 'following' if p.id in following_ids else '' }}"
+                            data-username="{{ p.username }}"
+                            data-following="{{ 'true' if p.id in following_ids else 'false' }}">
+                        {{ 'Siguiendo' if p.id in following_ids else 'Seguir' }}
+                    </button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="empty-hint">
+                    {% if is_own %}Todavía no tienes seguidores.{% else %}Todavía no tiene seguidores.{% endif %}
+                </p>
+            {% endif %}
+        </div>
+
+        <div class="tab-panel" id="panel-following">
+            {% if following %}
+                {% for p in following %}
+                <div class="person-row">
+                    <a href="{{ '/profile' if p.id == user.id else '/profile/' ~ p.username }}" class="person-link">
+                        <img src="{{ p.profile_pic }}" class="person-avatar" alt="Avatar">
+                        <span class="person-name">{{ p.username }}</span>
+                    </a>
+                    <span class="person-points">{{ p.points }} 🏆</span>
+                    {% if p.id != user.id %}
+                    <button class="follow-btn small {{ 'following' if p.id in following_ids else '' }}"
+                            data-username="{{ p.username }}"
+                            data-following="{{ 'true' if p.id in following_ids else 'false' }}">
+                        {{ 'Siguiendo' if p.id in following_ids else 'Seguir' }}
+                    </button>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="empty-hint">
+                    {% if is_own %}Todavía no sigues a nadie. ¡Búscalo arriba!{% else %}Todavía no sigue a nadie.{% endif %}
+                </p>
+            {% endif %}
+        </div>
+
+        {% if is_own %}
+        <!-- Cambiar foto de perfil -->
+        <div class="edit-photo-card">
+            <h3>Cambiar foto de perfil</h3>
+            {% if error %}
+            <div class="error-msg" style="margin-bottom: 12px;">{{ error }}</div>
+            {% endif %}
+            <form method="POST" enctype="multipart/form-data" class="photo-form">
+                <div class="file-input-wrapper">
+                    <input type="file" name="profile_pic" accept="image/png, image/jpeg, image/gif, image/webp" id="file-input">
+                </div>
+                <button type="submit" class="btn">Guardar Cambios</button>
+            </form>
+        </div>
+        {% endif %}
+
+        <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Volver al Promodoro</a>
+    </div>
+
+    <script>
+        const IS_OWN = {{ 'true' if is_own else 'false' }};
+
+        // Vista previa de la imagen antes de subirla
+        const fileInput = document.getElementById('file-input');
+        if (fileInput) {
+            fileInput.addEventListener('change', function (e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function (event) {
+                        document.getElementById('avatar-preview').src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        // --- Tabs de Seguidores / Siguiendo ---
+        function activateTab(target) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tabTarget === target));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${target}`));
+        }
+        document.querySelectorAll('[data-tab-target]').forEach(el => {
+            el.addEventListener('click', () => activateTab(el.dataset.tabTarget));
+        });
+
+        // --- Seguir / Dejar de seguir (delegado, funciona con botones creados dinámicamente) ---
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function setButtonState(btn, isFollowing) {
+            btn.dataset.following = isFollowing ? 'true' : 'false';
+            btn.classList.toggle('following', isFollowing);
+            btn.textContent = isFollowing ? 'Siguiendo' : 'Seguir';
+        }
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.follow-btn');
+            if (!btn) return;
+
+            const username = btn.dataset.username;
+            const currentlyFollowing = btn.dataset.following === 'true';
+            const endpoint = currentlyFollowing ? `/unfollow/${encodeURIComponent(username)}` : `/follow/${encodeURIComponent(username)}`;
+
+            btn.disabled = true;
+
+            fetch(endpoint, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) return;
+
+                    setButtonState(btn, data.is_following);
+
+                    // Si el botón que se tocó es el botón principal del perfil que se está viendo,
+                    // actualizamos su contador de seguidores.
+                    if (btn.id === 'main-follow-btn') {
+                        const followersEl = document.getElementById('followers-count');
+                        if (followersEl) followersEl.textContent = data.followers_count;
+                    }
+
+                    // Si estamos en nuestro propio perfil, cualquier seguir/dejar de seguir
+                    // (desde el buscador o desde las listas) cambia NUESTRO contador de "Siguiendo".
+                    if (IS_OWN) {
+                        const followingEl = document.getElementById('following-count');
+                        if (followingEl) followingEl.textContent = data.following_count;
+                    }
+                })
+                .catch(err => console.error('Error al actualizar seguimiento:', err))
+                .finally(() => { btn.disabled = false; });
+        });
+
+        // --- Buscador de personas para seguir (solo en el perfil propio) ---
+        const findInput = document.getElementById('find-input');
+        const findResults = document.getElementById('find-results');
+        let findTimeout;
+
+        function renderFindResults(results) {
+            if (results.length === 0) {
+                findResults.innerHTML = '<p class="empty-hint">No se encontraron usuarios.</p>';
+                return;
+            }
+            findResults.innerHTML = results.map(u => `
+                <div class="person-row">
+                    <a href="/profile/${encodeURIComponent(u.username)}" class="person-link">
+                        <img src="${escapeHtml(u.profile_pic)}" class="person-avatar" alt="Avatar">
+                        <span class="person-name">${escapeHtml(u.username)}</span>
+                    </a>
+                    <span class="person-points">${u.points} 🏆</span>
+                    <button class="follow-btn small ${u.is_following ? 'following' : ''}"
+                            data-username="${escapeHtml(u.username)}"
+                            data-following="${u.is_following ? 'true' : 'false'}">
+                        ${u.is_following ? 'Siguiendo' : 'Seguir'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        if (findInput) {
+            findInput.addEventListener('input', () => {
+                clearTimeout(findTimeout);
+                const query = findInput.value.trim();
+
+                if (query.length === 0) {
+                    findResults.innerHTML = '';
+                    return;
+                }
+
+                findTimeout = setTimeout(() => {
+                    fetch(`/search_users?q=${encodeURIComponent(query)}`)
+                        .then(response => {
+                            if (response.status === 401) {
+                                window.location.href = '/login';
+                                return null;
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data) renderFindResults(data.results);
+                        })
+                        .catch(err => console.error('Error al buscar usuarios:', err));
+                }, 300);
+            });
+        }
+    </script>
+</body>
+</html>
