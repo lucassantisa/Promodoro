@@ -8,6 +8,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
+    <!-- Precarga piano y lluvia en segundo plano para que no demoren al elegirlas -->
+    <link rel="preload" as="audio" href="https://cdn.pixabay.com/audio/2026/07/07/audio_e36696ae9b.mp3">
+    <link rel="preload" as="audio" href="https://cdn.pixabay.com/audio/2022/05/11/audio_567640eb63.mp3">
+
     <style>
         :root {
             --bg-base: #0b0f19;
@@ -226,6 +230,8 @@
         }
         .music-btn:hover { background: rgba(255, 255, 255, 0.1); transform: scale(1.05); }
         .music-btn.playing { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 15px var(--accent-glow); }
+        .music-btn.loading .fa-music { animation: spin 0.9s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
         .music-controls { display: flex; align-items: center; gap: 8px; }
 
@@ -580,6 +586,9 @@
             #volume-slider { width: 55px; }
             .new-exam-input { flex-wrap: wrap; }
             #new-exam-title, #new-exam-date { flex: 1 1 100%; }
+            .stats-modal { padding: 18px; }
+            .stats-chart-wrap { height: 180px; }
+            .stats-chart-wrap.stats-chart-folder { height: 170px; }
         }
 
         /* Avisos no bloqueantes (fin de bloque / fin de descanso) */
@@ -671,6 +680,118 @@
         }
         .close-search-btn:hover { background: rgba(255, 255, 255, 0.1); }
 
+        /* Modal de estadísticas de productividad */
+        .stats-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+        }
+        .stats-overlay.hidden { display: none; }
+
+        .stats-modal {
+            background: #131a2b;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 25px;
+            width: 100%;
+            max-width: 620px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        }
+
+        .stats-modal-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 20px; }
+        .stats-modal-title { font-weight: 600; font-size: 1.05rem; }
+
+        .stats-modal-body { overflow-y: auto; display: flex; flex-direction: column; gap: 28px; }
+
+        .stats-block-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+        .stats-block-title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
+
+        .calendar-nav { display: flex; align-items: center; gap: 10px; }
+        .calendar-nav-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+        }
+        .calendar-nav-btn:hover { background: rgba(139, 92, 246, 0.15); color: var(--text-main); }
+        .calendar-month-label { font-size: 0.85rem; font-weight: 600; min-width: 115px; text-align: center; }
+
+        .calendar-weekdays {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            text-align: center;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            row-gap: 8px;
+            justify-items: center;
+        }
+
+        .calendar-day {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .calendar-day.empty { visibility: hidden; }
+        .calendar-day.today { border-color: var(--accent); }
+        .calendar-day.studied {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 10px var(--accent-glow);
+        }
+        .calendar-day.studied:hover { transform: scale(1.14); }
+        .calendar-day.studied.selected { outline: 2px solid #fff; outline-offset: 2px; }
+
+        .calendar-day-detail {
+            margin-top: 16px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+        }
+        .calendar-detail-date { font-weight: 700; font-size: 0.9rem; display: block; margin-bottom: 8px; color: var(--accent); }
+        .calendar-detail-row { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+        .calendar-detail-row strong { color: var(--text-main); }
+
+        .stats-chart-wrap { position: relative; height: 220px; }
+        .stats-chart-wrap.stats-chart-folder { height: 200px; }
+
+        .stats-note { color: var(--text-muted); font-size: 0.75rem; text-align: center; margin-top: 10px; line-height: 1.4; opacity: 0.8; }
+        .stats-empty { color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 20px 0; }
+        .stats-empty.hidden { display: none; }
+
         .search-results { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 
         .search-result-item {
@@ -751,6 +872,7 @@
                 </a>
                 <div class="nav-links">
                     <a href="#" id="search-btn" title="Buscar usuarios"><i class="fas fa-search"></i></a>
+                    <a href="#" id="stats-btn" title="Estadísticas de productividad"><i class="fas fa-chart-simple"></i></a>
                     <a href="/profile" title="Perfil"><i class="fas fa-user-gear"></i></a>
                     <a href="/logout" class="logout" title="Cerrar Sesión"><i class="fas fa-sign-out-alt"></i></a>
                 </div>
@@ -779,6 +901,7 @@
                     <div class="track-select">
                         <button class="track-btn active" data-track="lofi" title="Lo-fi de estudio">🎧</button>
                         <button class="track-btn" data-track="piano" title="Piano relajante">🎹</button>
+                        <button class="track-btn" data-track="rain" title="Lluvia">🌧️</button>
                     </div>
                     <div class="volume-control" title="Volumen">
                         <i class="fas fa-volume-down volume-icon"></i>
@@ -864,10 +987,51 @@
         </div>
     </div>
 
+    <!-- Modal de estadísticas de productividad -->
+    <div class="stats-overlay hidden" id="stats-overlay">
+        <div class="stats-modal">
+            <div class="stats-modal-header">
+                <span class="stats-modal-title">📊 Tu Productividad</span>
+                <button class="close-search-btn" id="close-stats-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="stats-modal-body">
+                <div class="stats-block">
+                    <div class="stats-block-top">
+                        <span class="stats-block-title">Calendario de estudio</span>
+                        <div class="calendar-nav">
+                            <button class="calendar-nav-btn" id="calendar-prev-btn" title="Mes anterior"><i class="fas fa-chevron-left"></i></button>
+                            <span class="calendar-month-label" id="calendar-month-label"></span>
+                            <button class="calendar-nav-btn" id="calendar-next-btn" title="Mes siguiente"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                    <div class="calendar-weekdays">
+                        <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+                    </div>
+                    <div class="calendar-grid" id="calendar-grid"></div>
+                    <div class="calendar-day-detail hidden" id="calendar-day-detail">
+                        <span class="calendar-detail-date" id="calendar-detail-date"></span>
+                        <div class="calendar-detail-row">Bloques completados: <strong id="calendar-detail-blocks"></strong></div>
+                        <div class="calendar-detail-row">Tiempo de estudio: <strong id="calendar-detail-time"></strong></div>
+                    </div>
+                    <p class="stats-note">📌 Los días resaltados son días en que completaste al menos un bloque de estudio. Tócalos para ver el detalle.</p>
+                </div>
+
+                <div class="stats-block">
+                    <span class="stats-block-title">Tiempo por carpeta</span>
+                    <div class="stats-chart-wrap stats-chart-folder"><canvas id="folder-chart"></canvas></div>
+                    <p class="stats-empty hidden" id="folder-stats-empty">Aún no tienes tiempo registrado en ninguna carpeta.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
     <script>
         const TRACKS = {
             lofi: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
-            piano: 'https://archive.org/download/100-piano-music-for-relaxation-sleep-zen/100%20Piano%20Music%20For%20Relaxation%2C%20Sleep%2C%20Zen%20%282020%29/072.%20%20Musica%20Relajante%20%20-%20%20Piano%20Relajante.mp3'
+            piano: 'https://cdn.pixabay.com/audio/2026/07/07/audio_e36696ae9b.mp3',
+            rain: 'https://cdn.pixabay.com/audio/2022/05/11/audio_567640eb63.mp3'
         };
 
         const audio = document.getElementById('bg-audio');
@@ -875,8 +1039,28 @@
         const trackButtons = document.querySelectorAll('.track-btn');
         const volumeSlider = document.getElementById('volume-slider');
         const volumeIcon = document.querySelector('.volume-icon');
-        let isMusicPlaying = false;
         audio.volume = volumeSlider.value / 100;
+
+        // Piano y lluvia se descargan enteras a memoria (blob) apenas carga
+        // la página, en vez de pedirlas recién al hacer clic. Si para cuando
+        // el usuario las elige ya terminaron de descargar, suenan al instante.
+        // Si la descarga en segundo plano falla (ej. por CORS), no pasa
+        // nada: se reproduce igual desde la URL original como antes.
+        const trackBlobCache = {};
+
+        function prefetchTrack(key, url) {
+            fetch(url)
+                .then(res => {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.blob();
+                })
+                .then(blob => { trackBlobCache[key] = URL.createObjectURL(blob); })
+                .catch(err => console.log(`No se pudo precargar "${key}" en segundo plano:`, err));
+        }
+
+        Object.keys(TRACKS).forEach(key => {
+            if (key !== audio.dataset.currentTrack) prefetchTrack(key, TRACKS[key]);
+        });
 
         function updateVolumeIcon() {
             const val = parseInt(volumeSlider.value, 10);
@@ -890,16 +1074,34 @@
         });
         updateVolumeIcon();
 
+        // El estado visual del botón (ícono/clase "playing") se sincroniza
+        // directamente con los eventos reales del <audio>, nunca con una
+        // variable manual. Así el botón nunca queda "confundido" si una
+        // pista falla al cargar o tarda en responder.
+        audio.addEventListener('play', () => musicBtn.classList.add('playing'));
+        audio.addEventListener('pause', () => musicBtn.classList.remove('playing'));
+        audio.addEventListener('playing', () => musicBtn.classList.remove('loading'));
+        audio.addEventListener('error', () => {
+            musicBtn.classList.remove('playing', 'loading');
+            showNotice('No se pudo cargar esta pista de música. Prueba otra o inténtalo de nuevo.');
+        });
+
+        function attemptPlay() {
+            musicBtn.classList.add('loading');
+            audio.play().catch(e => {
+                console.log("Audio bloqueado:", e);
+                musicBtn.classList.remove('loading');
+                showNotice('No se pudo reproducir la música. Intenta de nuevo.');
+            });
+        }
+
         musicBtn.addEventListener('click', () => {
-            if (isMusicPlaying) {
-                audio.pause();
-                musicBtn.classList.remove('playing');
+            if (audio.paused) {
+                attemptPlay();
             } else {
-                audio.play().then(() => {
-                    musicBtn.classList.add('playing');
-                }).catch(e => console.log("Audio bloqueado:", e));
+                audio.pause();
+                musicBtn.classList.remove('loading');
             }
-            isMusicPlaying = !isMusicPlaying;
         });
 
         trackButtons.forEach(btn => {
@@ -910,13 +1112,13 @@
                 trackButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
 
-                const wasPlaying = isMusicPlaying;
-                audio.src = TRACKS[track];
+                const wasPlaying = !audio.paused;
+                audio.src = trackBlobCache[track] || TRACKS[track];
                 audio.dataset.currentTrack = track;
                 audio.load();
 
                 if (wasPlaying) {
-                    audio.play().catch(e => console.log("Audio bloqueado:", e));
+                    attemptPlay();
                 }
             });
         });
@@ -984,6 +1186,17 @@
         let timerInterval;
         let isStudyMode = true;
         let isRunning = false;
+        let endTime = null; // Marca de tiempo real (ms) en la que debe terminar el bloque actual
+
+        const TIMER_STORAGE_KEY = 'pomodoroActiveTimer';
+
+        function saveTimerState() {
+            localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify({ endTime, isStudyMode }));
+        }
+
+        function clearTimerState() {
+            localStorage.removeItem(TIMER_STORAGE_KEY);
+        }
 
         const timerDisplay = document.getElementById('timer');
         const modeText = document.getElementById('mode-text');
@@ -1336,7 +1549,7 @@
         function startTimer() {
             if (isRunning) return;
             getAudioContext(); // Habilita el audio de los avisos sonoros (requiere gesto del usuario)
-            if (!isMusicPlaying) { musicBtn.click(); }
+            if (audio.paused) { musicBtn.click(); }
 
             isRunning = true;
 
@@ -1345,33 +1558,93 @@
                 timeLeft = mins * 60;
             }
 
-            timerInterval = setInterval(() => {
-                timeLeft--;
-                updateDisplay();
+            // Se guarda la hora real en la que debe terminar el bloque (no un
+            // conteo de "ticks"). Así, si el navegador retrasa o directamente
+            // pausa el setInterval por tener la pestaña minimizada o estar en
+            // segundo plano, en cuanto vuelva a ejecutarse (o cuando el usuario
+            // regrese a la pestaña) se recalcula el tiempo restante real en
+            // vez de seguir contando desde donde se quedó.
+            endTime = Date.now() + timeLeft * 1000;
+            saveTimerState();
 
-                if (timeLeft <= 0) {
-                    clearInterval(timerInterval);
-                    isRunning = false;
+            timerInterval = setInterval(tick, 1000);
+        }
 
-                    if (isStudyMode) {
-                        const minutesStudied = getValidatedMinutes(true);
-                        addPointsToAccount(minutesStudied);
-                        playStudyEndSound();
-                        showNotice(`¡Bloque de estudio terminado! Ganaste ${minutesStudied} puntos 🏆`);
-                        switchToBreak();
-                        startTimer(); // El descanso arranca solo
-                    } else {
-                        playBreakEndSound();
-                        showNotice("¡Descanso terminado! Volviendo al estudio.");
-                        switchToStudy();
-                    }
+        function tick() {
+            if (!isRunning) return;
+
+            timeLeft = Math.max(Math.round((endTime - Date.now()) / 1000), 0);
+            updateDisplay();
+
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                isRunning = false;
+                clearTimerState();
+
+                if (isStudyMode) {
+                    const minutesStudied = getValidatedMinutes(true);
+                    addPointsToAccount(minutesStudied);
+                    playStudyEndSound();
+                    showNotice(`¡Bloque de estudio terminado! Ganaste ${minutesStudied} puntos 🏆`);
+                    switchToBreak();
+                    startTimer(); // El descanso arranca solo
+                } else {
+                    playBreakEndSound();
+                    showNotice("¡Descanso terminado! Volviendo al estudio.");
+                    switchToStudy();
                 }
-            }, 1000);
+            }
+        }
+
+        // En cuanto la pestaña vuelve a estar visible, se recalcula el tiempo
+        // real transcurrido al instante en vez de esperar al próximo tick
+        // (que puede tardar si el navegador venía retrasando el intervalo).
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && isRunning) tick();
+        });
+
+        // Si había un bloque corriendo cuando se cerró/recargó la pestaña,
+        // se retoma exactamente donde iba en vez de perderlo.
+        function restoreTimerState() {
+            const saved = localStorage.getItem(TIMER_STORAGE_KEY);
+            if (!saved) return;
+
+            try {
+                const state = JSON.parse(saved);
+                if (!state.endTime) return;
+
+                if (state.isStudyMode !== isStudyMode) {
+                    isStudyMode = state.isStudyMode;
+                    applyModeUI(isStudyMode);
+                }
+
+                const remaining = Math.round((state.endTime - Date.now()) / 1000);
+
+                if (remaining <= 0) {
+                    // El bloque ya se cumplió mientras la pestaña estaba
+                    // cerrada/inactiva. Se deja el reloj en 0 en vez de
+                    // disparar puntos/alertas de algo que pasó sin que el
+                    // usuario lo viera; puede reiniciar cuando quiera.
+                    clearTimerState();
+                    timeLeft = 0;
+                    updateDisplay();
+                    return;
+                }
+
+                endTime = state.endTime;
+                timeLeft = remaining;
+                isRunning = true;
+                updateDisplay();
+                timerInterval = setInterval(tick, 1000);
+            } catch (e) {
+                clearTimerState();
+            }
         }
 
         function pauseTimer() {
             clearInterval(timerInterval);
             isRunning = false;
+            clearTimerState();
         }
 
         function resetTimer() {
@@ -1381,19 +1654,27 @@
             updateDisplay();
         }
 
+        function applyModeUI(studyMode) {
+            if (studyMode) {
+                modeText.textContent = "Estudio 📚";
+                skipBreakBtn.classList.add('hidden');
+                redeemPointsBtn.classList.remove('hidden');
+            } else {
+                modeText.textContent = "Descanso ☕";
+                skipBreakBtn.classList.remove('hidden');
+                redeemPointsBtn.classList.add('hidden');
+            }
+        }
+
         function switchToBreak() {
             isStudyMode = false;
-            modeText.textContent = "Descanso ☕";
-            skipBreakBtn.classList.remove('hidden');
-            redeemPointsBtn.classList.add('hidden');
+            applyModeUI(false);
             resetTimer();
         }
 
         function switchToStudy() {
             isStudyMode = true;
-            modeText.textContent = "Estudio 📚";
-            skipBreakBtn.classList.add('hidden');
-            redeemPointsBtn.classList.remove('hidden');
+            applyModeUI(true);
             resetTimer();
         }
 
@@ -1463,6 +1744,218 @@
             .catch(err => console.error('Error al guardar los puntos:', err));
         }
 
+        // --- Estadísticas de productividad ---
+        const statsBtn = document.getElementById('stats-btn');
+        const statsOverlay = document.getElementById('stats-overlay');
+        const closeStatsBtn = document.getElementById('close-stats-btn');
+        const folderStatsEmpty = document.getElementById('folder-stats-empty');
+
+        let statsData = null;
+        let folderChart = null;
+
+        // Paleta de colores para distinguir carpetas en el gráfico
+        const FOLDER_COLORS = ['#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#a3e635', '#6366f1', '#f97316', '#14b8a6'];
+
+        function formatMinutes(mins) {
+            if (mins < 60) return `${mins} min`;
+            const h = Math.floor(mins / 60);
+            const m = mins % 60;
+            return m > 0 ? `${h}h ${m}min` : `${h}h`;
+        }
+
+        if (window.Chart) {
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Poppins', sans-serif";
+        }
+
+        function openStats() {
+            statsOverlay.classList.remove('hidden');
+            loadProductivityStats();
+            loadCalendarStats();
+        }
+
+        function closeStats() {
+            statsOverlay.classList.add('hidden');
+        }
+
+        statsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openStats();
+        });
+        closeStatsBtn.addEventListener('click', closeStats);
+        statsOverlay.addEventListener('click', (e) => {
+            if (e.target === statsOverlay) closeStats();
+        });
+
+        function loadProductivityStats() {
+            fetch('/productivity_stats')
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    statsData = data;
+                    renderFolderChart();
+                })
+                .catch(err => console.error('Error al cargar estadísticas:', err));
+        }
+
+        // --- Calendario de estudio (círculos por día) ---
+        const MONTH_NAMES_ES_JS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+        let calendarYear = new Date().getFullYear();
+        let calendarMonth = new Date().getMonth() + 1; // 1-12
+        let calendarDaysData = {};
+
+        const calendarGrid = document.getElementById('calendar-grid');
+        const calendarMonthLabel = document.getElementById('calendar-month-label');
+        const calendarPrevBtn = document.getElementById('calendar-prev-btn');
+        const calendarNextBtn = document.getElementById('calendar-next-btn');
+        const calendarDayDetail = document.getElementById('calendar-day-detail');
+        const calendarDetailDate = document.getElementById('calendar-detail-date');
+        const calendarDetailBlocks = document.getElementById('calendar-detail-blocks');
+        const calendarDetailTime = document.getElementById('calendar-detail-time');
+
+        function loadCalendarStats() {
+            fetch(`/calendar_stats?year=${calendarYear}&month=${calendarMonth}`)
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    calendarDaysData = data.days || {};
+                    renderCalendar();
+                })
+                .catch(err => console.error('Error al cargar el calendario de estudio:', err));
+        }
+
+        function renderCalendar() {
+            calendarMonthLabel.textContent = `${MONTH_NAMES_ES_JS[calendarMonth - 1]} ${calendarYear}`;
+            calendarGrid.innerHTML = '';
+            calendarDayDetail.classList.add('hidden');
+
+            const firstDay = new Date(calendarYear, calendarMonth - 1, 1);
+            const startWeekday = firstDay.getDay(); // 0 = domingo
+            const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            for (let i = 0; i < startWeekday; i++) {
+                const filler = document.createElement('div');
+                filler.className = 'calendar-day empty';
+                calendarGrid.appendChild(filler);
+            }
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${calendarYear}-${String(calendarMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const cell = document.createElement('div');
+                cell.className = 'calendar-day';
+                cell.textContent = d;
+                if (dateStr === todayStr) cell.classList.add('today');
+
+                const info = calendarDaysData[dateStr];
+                if (info) {
+                    cell.classList.add('studied');
+                    cell.addEventListener('click', () => selectCalendarDay(dateStr, info, cell));
+                }
+
+                calendarGrid.appendChild(cell);
+            }
+        }
+
+        function selectCalendarDay(dateStr, info, cellEl) {
+            document.querySelectorAll('.calendar-day.selected').forEach(el => el.classList.remove('selected'));
+            cellEl.classList.add('selected');
+
+            const [y, m, d] = dateStr.split('-');
+            calendarDetailDate.textContent = `${d}/${m}/${y}`;
+            calendarDetailBlocks.textContent = info.blocks;
+            calendarDetailTime.textContent = formatMinutes(info.minutes);
+            calendarDayDetail.classList.remove('hidden');
+        }
+
+        calendarPrevBtn.addEventListener('click', () => {
+            calendarMonth--;
+            if (calendarMonth < 1) { calendarMonth = 12; calendarYear--; }
+            loadCalendarStats();
+        });
+
+        calendarNextBtn.addEventListener('click', () => {
+            calendarMonth++;
+            if (calendarMonth > 12) { calendarMonth = 1; calendarYear++; }
+            loadCalendarStats();
+        });
+
+        function renderFolderChart() {
+            if (!statsData) return;
+            const folders = statsData.by_folder || [];
+            const canvas = document.getElementById('folder-chart');
+
+            if (folders.length === 0) {
+                canvas.classList.add('hidden');
+                folderStatsEmpty.classList.remove('hidden');
+                return;
+            }
+            canvas.classList.remove('hidden');
+            folderStatsEmpty.classList.add('hidden');
+
+            const labels = folders.map(f => f.name);
+            const minutesArr = folders.map(f => f.minutes);
+            const hoursArr = minutesArr.map(m => Math.round((m / 60) * 10) / 10);
+            const colors = folders.map((_, i) => FOLDER_COLORS[i % FOLDER_COLORS.length]);
+
+            if (folderChart) {
+                folderChart.data.labels = labels;
+                folderChart.data.datasets[0].data = hoursArr;
+                folderChart.data.datasets[0].backgroundColor = colors;
+                folderChart.data.datasets[0]._rawMinutes = minutesArr;
+                folderChart.update();
+                return;
+            }
+
+            folderChart = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: hoursArr,
+                        _rawMinutes: minutesArr,
+                        backgroundColor: colors,
+                        borderRadius: 6,
+                        maxBarThickness: 22
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (item) => formatMinutes(item.dataset._rawMinutes[item.dataIndex])
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.06)' },
+                            ticks: { callback: (v) => `${v}h` }
+                        },
+                        y: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
         // --- Buscador de usuarios ---
         const searchBtn = document.getElementById('search-btn');
         const searchOverlay = document.getElementById('search-overlay');
@@ -1494,7 +1987,9 @@
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && !searchOverlay.classList.contains('hidden')) closeSearch();
+            if (e.key !== 'Escape') return;
+            if (!searchOverlay.classList.contains('hidden')) closeSearch();
+            if (!statsOverlay.classList.contains('hidden')) closeStats();
         });
 
         function escapeHtml(str) {
@@ -1580,6 +2075,7 @@
         updateDisplay();
         loadFolders();
         loadExamDates();
+        restoreTimerState();
     </script>
 </body>
 </html>

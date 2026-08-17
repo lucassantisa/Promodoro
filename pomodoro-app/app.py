@@ -1,6 +1,7 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import defaultdict
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -75,6 +76,16 @@ class ExamDate(db.Model):
     title = db.Column(db.String(100), nullable=False)
     exam_date = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class StudySession(db.Model):
+    """Registro de cada bloque de estudio completado (con su fecha y carpeta),
+    usado para armar el gráfico de productividad por día/semana/mes."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    folder_id = db.Column(db.Integer, db.ForeignKey('folder.id'), nullable=True)
+    minutes = db.Column(db.Integer, nullable=False)
+    completed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class User(db.Model):
@@ -444,6 +455,16 @@ def add_points():
     # la suma de las carpetas siempre sea igual al total.
     user.points += points_earned
     folder.points += points_earned
+
+    # Registro histórico del bloque, para el gráfico de productividad
+    if points_earned > 0:
+        db.session.add(StudySession(
+            user_id=user.id,
+            folder_id=folder.id,
+            minutes=points_earned,
+            completed_at=datetime.utcnow()
+        ))
+
     db.session.commit()
 
     return jsonify({
@@ -524,6 +545,114 @@ def delete_exam_date(exam_id):
     db.session.commit()
 
     return jsonify({"success": True})
+
+
+MONTH_NAMES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+
+def _months_back(base, n):
+    """Devuelve (año, mes) que quedan 'n' meses atrás de la fecha base."""
+    total = base.year * 12 + (base.month - 1) - n
+    y, m = divmod(total, 12)
+    return y, m + 1
+
+
+@app.route('/productivity_stats')
+def productivity_stats():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    now = datetime.utcnow()
+
+    # --- Serie diaria: últimos 14 días ---
+    daily_start = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+    daily_minutes = defaultdict(int)
+    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= daily_start).all():
+        daily_minutes[s.completed_at.date().isoformat()] += s.minutes
+
+    daily_series = []
+    for i in range(13, -1, -1):
+        day = (now - timedelta(days=i)).date()
+        daily_series.append({"label": day.strftime('%d/%m'), "minutes": daily_minutes.get(day.isoformat(), 0)})
+
+    # --- Serie semanal: últimas 8 semanas ---
+    weekly_start = now - timedelta(weeks=8)
+    weekly_minutes = defaultdict(int)
+    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= weekly_start).all():
+        y, w, _ = s.completed_at.isocalendar()
+        weekly_minutes[f"{y}-W{w:02d}"] += s.minutes
+
+    weekly_series = []
+    for i in range(7, -1, -1):
+        wdate = now - timedelta(weeks=i)
+        y, w, _ = wdate.isocalendar()
+        weekly_series.append({"label": f"Sem {w}", "minutes": weekly_minutes.get(f"{y}-W{w:02d}", 0)})
+
+    # --- Serie mensual: últimos 6 meses ---
+    earliest_year, earliest_month = _months_back(now, 5)
+    monthly_minutes = defaultdict(int)
+    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= datetime(earliest_year, earliest_month, 1)).all():
+        monthly_minutes[f"{s.completed_at.year}-{s.completed_at.month:02d}"] += s.minutes
+
+    monthly_series = []
+    for i in range(5, -1, -1):
+        y, m = _months_back(now, i)
+        monthly_series.append({"label": MONTH_NAMES_ES[m - 1], "minutes": monthly_minutes.get(f"{y}-{m:02d}", 0)})
+
+    # --- Por carpeta (categoría): tiempo total invertido, de siempre ---
+    folders = user.folders.order_by(Folder.points.desc()).limit(10).all()
+    by_folder = [{"name": f.name, "minutes": f.points} for f in folders if f.points > 0]
+
+    return jsonify({
+        "daily": daily_series,
+        "weekly": weekly_series,
+        "monthly": monthly_series,
+        "by_folder": by_folder
+    })
+
+
+@app.route('/calendar_stats')
+def calendar_stats():
+    """Devuelve, para un mes dado, qué días el usuario completó al menos
+    un bloque de estudio, con cuántos bloques y minutos totales ese día."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    now = datetime.utcnow()
+    try:
+        year = int(request.args.get('year', now.year))
+        month = int(request.args.get('month', now.month))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Parámetros inválidos"}), 400
+
+    if month < 1 or month > 12:
+        return jsonify({"error": "Mes inválido"}), 400
+
+    start = datetime(year, month, 1)
+    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+
+    days = defaultdict(lambda: {"blocks": 0, "minutes": 0})
+    sessions = StudySession.query.filter(
+        StudySession.user_id == user.id,
+        StudySession.completed_at >= start,
+        StudySession.completed_at < end
+    ).all()
+    for s in sessions:
+        key = s.completed_at.date().isoformat()
+        days[key]["blocks"] += 1
+        days[key]["minutes"] += s.minutes
+
+    return jsonify({"year": year, "month": month, "days": days})
 
 
 @app.route('/search_users')
