@@ -867,12 +867,13 @@
                     <img src="{{ user.profile_pic }}" alt="Avatar" class="profile-avatar">
                     <div class="user-details">
                         <div class="username">{{ user.username }}</div>
-                        <div class="points-badge"><span id="score">{{ user.points }}</span> 🏆 pts</div>
+                        <div class="points-badge"><span id="score">{{ user.pomodoros }}</span> 🍅 pomodoros</div>
                     </div>
                 </a>
                 <div class="nav-links">
                     <a href="#" id="search-btn" title="Buscar usuarios"><i class="fas fa-search"></i></a>
                     <a href="#" id="stats-btn" title="Estadísticas de productividad"><i class="fas fa-chart-simple"></i></a>
+                    <a href="/shop" title="Tienda de puntos"><i class="fas fa-store"></i></a>
                     <a href="/profile" title="Perfil"><i class="fas fa-user-gear"></i></a>
                     <a href="/logout" class="logout" title="Cerrar Sesión"><i class="fas fa-sign-out-alt"></i></a>
                 </div>
@@ -1226,7 +1227,37 @@
             localStorage.setItem('rankBadgeCollapsed', collapsed);
         });
 
-        // --- Carpetas de estudio (puntos por ramo) ---
+        // Umbrales de rango (en pomodoros), enviados desde el backend para no
+        // duplicar la tabla. Permite actualizar el badge de rango al instante
+        // cuando se gana un nuevo pomodoro, sin recargar la página.
+        const RANKS = {{ ranks|tojson }};
+
+        function getRankInfo(pomodoros) {
+            for (const r of RANKS) {
+                if (pomodoros >= r.min) return r;
+            }
+            return RANKS[RANKS.length - 1];
+        }
+
+        function updateRankBadge(pomodoros) {
+            const info = getRankInfo(pomodoros);
+            const wasCollapsed = rankBadge.classList.contains('collapsed');
+            rankBadge.className = `rank-badge rank-${info.key}${wasCollapsed ? ' collapsed' : ''}`;
+            rankBadge.querySelector('.rank-icon').textContent = info.icon;
+            rankBadge.querySelector('.rank-name').textContent = info.name;
+            rankBadge.querySelector('.rank-material').textContent = info.material;
+        }
+
+        // Formatea minutos como tiempo legible ("1h 13m", "45m", "2h") para
+        // mostrar el tiempo estudiado por carpeta en vez de puntos.
+        function formatFolderTime(mins) {
+            if (mins < 60) return `${mins}m`;
+            const h = Math.floor(mins / 60);
+            const m = mins % 60;
+            return m > 0 ? `${h}h ${m}m` : `${h}h`;
+        }
+
+        // --- Carpetas de estudio (tiempo por ramo) ---
         let folders = [];
         let activeFolderId = null;
 
@@ -1261,7 +1292,7 @@
             foldersList.innerHTML = folders.map(f => `
                 <button type="button" class="folder-chip ${f.id === activeFolderId ? 'active' : ''}" data-folder-id="${f.id}">
                     <span class="folder-name">${escapeHtml(f.name)}</span>
-                    <span class="folder-points">${f.points} pts</span>
+                    <span class="folder-points">${formatFolderTime(f.points)}</span>
                     <i class="fas fa-times folder-delete" data-folder-id="${f.id}" title="Eliminar carpeta"></i>
                 </button>
             `).join('');
@@ -1273,7 +1304,7 @@
                 e.stopPropagation();
                 const id = parseInt(deleteIcon.dataset.folderId, 10);
                 const folder = folders.find(f => f.id === id);
-                if (folder && confirm(`¿Eliminar la carpeta "${folder.name}"? Sus ${folder.points} pts se restarán del total.`)) {
+                if (folder && confirm(`¿Eliminar la carpeta "${folder.name}"? Sus ${formatFolderTime(folder.points)} se restarán del total.`)) {
                     deleteFolder(id);
                 }
                 return;
@@ -1296,7 +1327,8 @@
                 })
                 .then(data => {
                     if (data && data.success) {
-                        scoreDisplay.textContent = data.new_total;
+                        scoreDisplay.textContent = data.new_pomodoros;
+                        updateRankBadge(data.new_pomodoros);
                         loadFolders();
                     } else if (data && data.error) {
                         alert(data.error);
@@ -1728,7 +1760,8 @@
             })
             .then(data => {
                 if (data && data.success) {
-                    scoreDisplay.textContent = data.new_total;
+                    scoreDisplay.textContent = data.new_pomodoros;
+                    updateRankBadge(data.new_pomodoros);
                     if (data.folder) {
                         activeFolderId = data.folder.id;
                         const existing = folders.find(f => f.id === data.folder.id);
@@ -2009,7 +2042,7 @@
                         <img src="${escapeHtml(u.profile_pic)}" class="search-avatar" alt="Avatar">
                         <span class="search-username">${escapeHtml(u.username)}</span>
                     </a>
-                    <span class="search-points">${u.points} 🏆</span>
+                    <span class="search-points">${u.pomodoros} 🍅</span>
                     <button class="follow-btn ${u.is_following ? 'following' : ''}"
                             data-username="${escapeHtml(u.username)}"
                             data-following="${u.is_following ? 'true' : 'false'}">

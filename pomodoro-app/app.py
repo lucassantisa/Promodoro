@@ -25,20 +25,43 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- Sistema de rangos según puntaje, con temática de materiales ---
+# --- Sistema de rangos según cantidad de pomodoros (tomates), con temática de materiales ---
+# 1 pomodoro = 1 hora completa de estudio acumulada (ver User.pomodoros).
 RANKS = [
-    {'min': 1200, 'key': 'diamante', 'name': 'Dios',       'material': 'Diamante', 'icon': '💎'},
-    {'min': 600,  'key': 'oro',      'name': 'Experto',    'material': 'Oro',      'icon': '🥇'},
-    {'min': 360,  'key': 'hierro',   'name': 'Avanzado',   'material': 'Hierro',   'icon': '⚙️'},
-    {'min': 120,  'key': 'piedra',   'name': 'Intermedio', 'material': 'Piedra',   'icon': '🪨'},
-    {'min': 0,    'key': 'madera',   'name': 'Novato',     'material': 'Madera',   'icon': '🪵'},
+    {'min': 100, 'key': 'diamante', 'name': 'Dios',       'material': 'Diamante', 'icon': '💎'},
+    {'min': 40,  'key': 'oro',      'name': 'Experto',    'material': 'Oro',      'icon': '🥇'},
+    {'min': 20,  'key': 'hierro',   'name': 'Avanzado',   'material': 'Hierro',   'icon': '⚙️'},
+    {'min': 10,  'key': 'piedra',   'name': 'Intermedio', 'material': 'Piedra',   'icon': '🪨'},
+    {'min': 0,   'key': 'madera',   'name': 'Novato',     'material': 'Madera',   'icon': '🪵'},
 ]
 
-def get_rank_info(points):
+def get_rank_info(pomodoros):
     for rank in RANKS:
-        if points >= rank['min']:
+        if pomodoros >= rank['min']:
             return rank
     return RANKS[-1]
+
+# --- Tienda de puntos ---
+# Catálogo de objetos comprables. Por ahora solo hay un banner animado,
+# pero está pensado para poder agregar más objetos (y tipos) más adelante.
+SHOP_ITEMS = {
+    'banner_aurora': {
+        'id': 'banner_aurora',
+        'name': 'Banner Aurora',
+        'description': 'Un fondo animado que aparece detrás de tu perfil.',
+        'price': 100,
+        'type': 'banner',
+        'image_url': 'https://cdn.pixabay.com/animation/2023/04/16/16/18/16-18-04-472_512.gif'
+    },
+    'banner_nova': {
+        'id': 'banner_nova',
+        'name': 'Banner Nova',
+        'description': 'Otro fondo animado para personalizar tu perfil.',
+        'price': 150,
+        'type': 'banner',
+        'image_url': 'https://cdn.pixabay.com/animation/2026/05/09/09/34/09-34-48-912_256.gif'
+    }
+}
 
 db = SQLAlchemy(app)
 
@@ -88,12 +111,26 @@ class StudySession(db.Model):
     completed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class Purchase(db.Model):
+    """Objeto de la tienda que un usuario ya compró (su 'inventario')."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    item_id = db.Column(db.String(50), nullable=False)
+    purchased_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'item_id', name='uix_user_item_purchase'),
+    )
+
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
     points = db.Column(db.Integer, default=0)
     profile_pic = db.Column(db.String(300), default='https://i.imgur.com/6VBx3io.png') # Avatar por defecto
+    balance = db.Column(db.Integer, default=0)  # Puntos gastables en la tienda (no baja el total/rango)
+    equipped_banner = db.Column(db.String(50), nullable=True)  # id del banner activo en el perfil
 
     # --- Relaciones de seguidores (sistema tipo red social) ---
     following = db.relationship(
@@ -118,6 +155,26 @@ class User(db.Model):
         lazy='dynamic',
         cascade='all, delete-orphan'
     )
+
+    # --- Objetos comprados en la tienda ---
+    purchases = db.relationship(
+        'Purchase',
+        backref='user',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def pomodoros(self):
+        """Cantidad de pomodoros ganados. 1 pomodoro = 1 hora completa de
+        estudio acumulada (user.points guarda el total de minutos estudiados
+        históricamente). Esto es lo que se muestra en el perfil y define el
+        rango; los 'points' en sí quedan solo como saldo interno para la
+        tienda (ver user.balance)."""
+        return self.points // 60
+
+    def owns_item(self, item_id):
+        return self.purchases.filter_by(item_id=item_id).first() is not None
 
     def is_following(self, other_user):
         if other_user is None:
@@ -195,8 +252,8 @@ def index():
         session.clear()
         return redirect(url_for('login'))
 
-    rank = get_rank_info(user.points)
-    return render_template('index.html', user=user, rank=rank)
+    rank = get_rank_info(user.pomodoros)
+    return render_template('index.html', user=user, rank=rank, ranks=RANKS)
 
 def render_profile_page(viewer, profile_user, error=None):
     """Arma el contexto compartido por /profile y /profile/<username>."""
@@ -209,6 +266,9 @@ def render_profile_page(viewer, profile_user, error=None):
     # para poder pintar el botón correcto (Seguir / Siguiendo) en cada fila de las listas.
     viewer_following_ids = {f.followed_id for f in viewer.following.all()}
 
+    banner_item = SHOP_ITEMS.get(profile_user.equipped_banner)
+    banner_url = banner_item['image_url'] if banner_item else None
+
     return render_template(
         'profile.html',
         user=viewer,
@@ -218,7 +278,8 @@ def render_profile_page(viewer, profile_user, error=None):
         followers=followers,
         following=following,
         following_ids=viewer_following_ids,
-        rank=get_rank_info(profile_user.points),
+        rank=get_rank_info(profile_user.pomodoros),
+        banner_url=banner_url,
         error=error
     )
 
@@ -423,7 +484,7 @@ def delete_folder(folder_id):
     db.session.delete(folder)
     db.session.commit()
 
-    return jsonify({"success": True, "new_total": user.points})
+    return jsonify({"success": True, "new_total": user.points, "new_pomodoros": user.pomodoros})
 
 
 @app.route('/add_points', methods=['POST'])
@@ -452,8 +513,10 @@ def add_points():
         folder = ensure_default_folder(user)
 
     # Los puntos se suman al total Y a la carpeta seleccionada, para que
-    # la suma de las carpetas siempre sea igual al total.
+    # la suma de las carpetas siempre sea igual al total. También se suman
+    # al saldo gastable de la tienda (ese sí baja al comprar algo).
     user.points += points_earned
+    user.balance += points_earned
     folder.points += points_earned
 
     # Registro histórico del bloque, para el gráfico de productividad
@@ -470,8 +533,107 @@ def add_points():
     return jsonify({
         "success": True,
         "new_total": user.points,
+        "new_pomodoros": user.pomodoros,
         "folder": {"id": folder.id, "name": folder.name, "points": folder.points}
     })
+
+
+@app.route('/shop')
+def shop():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return redirect(url_for('login'))
+
+    owned_ids = {p.item_id for p in user.purchases.all()}
+    items = list(SHOP_ITEMS.values())
+
+    return render_template('shop.html', user=user, items=items, owned_ids=owned_ids)
+
+
+@app.route('/shop/buy/<item_id>', methods=['POST'])
+def buy_item(item_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    item = SHOP_ITEMS.get(item_id)
+    if item is None:
+        return jsonify({"error": "Objeto no encontrado"}), 404
+
+    if user.owns_item(item_id):
+        return jsonify({"error": "Ya tienes este objeto"}), 400
+
+    if user.balance < item['price']:
+        return jsonify({"error": "No tienes suficientes puntos para este objeto"}), 400
+
+    user.balance -= item['price']
+    db.session.add(Purchase(user_id=user.id, item_id=item_id))
+
+    # Si es un banner y el usuario todavía no tiene ninguno equipado, se lo
+    # equipa automáticamente como cortesía (para que la primera compra se
+    # note altiro). Si ya tenía uno puesto, se respeta su elección: puede
+    # cambiarlo cuando quiera con el botón "Equipar" de cada banner que
+    # ya compró.
+    if item['type'] == 'banner' and user.equipped_banner is None:
+        user.equipped_banner = item_id
+
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "new_balance": user.balance,
+        "equipped_banner": user.equipped_banner
+    })
+
+
+@app.route('/shop/equip/<item_id>', methods=['POST'])
+def equip_item(item_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    item = SHOP_ITEMS.get(item_id)
+    if item is None:
+        return jsonify({"error": "Objeto no encontrado"}), 404
+
+    if item['type'] != 'banner':
+        return jsonify({"error": "Este objeto no se puede equipar"}), 400
+
+    if not user.owns_item(item_id):
+        return jsonify({"error": "No tienes este objeto"}), 403
+
+    user.equipped_banner = item_id
+    db.session.commit()
+
+    return jsonify({"success": True, "equipped_banner": user.equipped_banner})
+
+
+@app.route('/shop/unequip', methods=['POST'])
+def unequip_banner():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    user.equipped_banner = None
+    db.session.commit()
+
+    return jsonify({"success": True, "equipped_banner": None})
 
 
 @app.route('/exam_dates', methods=['GET'])
@@ -679,7 +841,7 @@ def search_users():
     results = [
         {
             "username": u.username,
-            "points": u.points,
+            "pomodoros": u.pomodoros,
             "profile_pic": u.profile_pic,
             "is_following": u.id in my_following_ids
         }
@@ -689,6 +851,25 @@ def search_users():
 
 with app.app_context():
     db.create_all()
+
+    # --- Migración ligera para bases de datos que ya existían antes de la tienda ---
+    # db.create_all() solo crea TABLAS nuevas (como Purchase), no agrega columnas
+    # nuevas a una tabla que ya existe (como 'balance' en 'user'). Esto se
+    # encarga de eso de forma segura y solo una vez.
+    inspector = db.inspect(db.engine)
+    if 'user' in inspector.get_table_names():
+        existing_columns = [col['name'] for col in inspector.get_columns('user')]
+
+        if 'balance' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN balance INTEGER DEFAULT 0'))
+            db.session.commit()
+            # Los puntos que ya tenían ganados quedan disponibles para gastar en la tienda
+            db.session.execute(db.text('UPDATE user SET balance = points'))
+            db.session.commit()
+
+        if 'equipped_banner' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_banner VARCHAR(50)'))
+            db.session.commit()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

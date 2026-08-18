@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tienda - Promodoro</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-base: #0b0f19;
+            --bg-panel: rgba(26, 32, 53, 0.6);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #8b5cf6;
+            --accent-glow: rgba(139, 92, 246, 0.4);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+            padding: 40px 16px;
+            overflow-x: hidden;
+        }
+
+        .ambient-light {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(100px);
+            z-index: 0;
+            opacity: 0.5;
+            animation: float 10s infinite alternate ease-in-out;
+        }
+        .light-1 { width: 400px; height: 400px; background: #4c1d95; top: -100px; left: -100px; }
+        .light-2 { width: 300px; height: 300px; background: #0f766e; bottom: -50px; right: -50px; animation-delay: -5s; }
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        .shop-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 680px;
+            z-index: 10;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .shop-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 26px;
+        }
+        .shop-header h2 { font-size: 1.4rem; font-weight: 600; }
+
+        .balance-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+
+        .shop-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 18px;
+        }
+
+        .item-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .item-preview {
+            width: 100%;
+            height: 130px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+        }
+        .item-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+        .item-name { font-weight: 700; font-size: 1rem; }
+        .item-desc { color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; flex-grow: 1; }
+        .item-price { color: #eab308; font-weight: 600; font-size: 0.9rem; }
+
+        .buy-btn {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Poppins', sans-serif;
+        }
+        .buy-btn:hover:not(:disabled) { box-shadow: 0 8px 18px var(--accent-glow); transform: translateY(-1px); }
+        .buy-btn:disabled { cursor: not-allowed; }
+        .buy-btn.owned {
+            background: transparent;
+            border: 1px solid #22c55e;
+            color: #4ade80;
+        }
+        .buy-btn.locked {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+        }
+        .buy-btn.equip {
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+        }
+        .buy-btn.equip:hover:not(:disabled) { background: rgba(139, 92, 246, 0.12); }
+
+        .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .unequip-link {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-decoration: underline;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            padding: 0;
+        }
+        .unequip-link:hover { color: var(--text-main); }
+
+        .empty-hint { color: var(--text-muted); text-align: center; padding: 30px 0; }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 28px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .back-link:hover { color: var(--text-main); }
+
+        @media (max-width: 480px) {
+            .shop-card { padding: 28px 20px; }
+            .shop-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-light light-1"></div>
+    <div class="ambient-light light-2"></div>
+
+    <div class="shop-card">
+        <div class="shop-header">
+            <h2>Tienda de Puntos 🛍️</h2>
+            <div class="header-right">
+                <div class="balance-pill">💰 <span id="balance-amount">{{ user.balance }}</span> pts disponibles</div>
+                {% if user.equipped_banner %}
+                <button class="unequip-link" id="unequip-banner-btn" onclick="unequipBanner()">Quitar banner actual</button>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if items %}
+        <div class="shop-grid">
+            {% for item in items %}
+            <div class="item-card">
+                <div class="item-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}"></div>
+                <div class="item-name">{{ item.name }}</div>
+                <div class="item-desc">{{ item.description }}</div>
+                <div class="item-price">{{ item.price }} pts</div>
+
+                {% if item.id in owned_ids %}
+                    {% if item.type == 'banner' %}
+                        {% if user.equipped_banner == item.id %}
+                            <button class="buy-btn owned banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
+                        {% else %}
+                            <button class="buy-btn equip banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)">Equipar</button>
+                        {% endif %}
+                    {% else %}
+                        <button class="buy-btn owned" disabled>✅ Ya lo tienes</button>
+                    {% endif %}
+                {% elif user.balance < item.price %}
+                    <button class="buy-btn locked" disabled>Te faltan {{ item.price - user.balance }} pts</button>
+                {% else %}
+                    <button class="buy-btn" data-item-id="{{ item.id }}" data-item-type="{{ item.type }}" onclick="buyItem(this)">Comprar</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty-hint">Todavía no hay objetos en la tienda.</p>
+        {% endif %}
+
+        <a href="/profile" class="back-link"><i class="fas fa-arrow-left"></i> Volver al perfil</a>
+    </div>
+
+    <script>
+        function buyItem(btn) {
+            const itemId = btn.dataset.itemId;
+            const isBanner = btn.dataset.itemType === 'banner';
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Comprando...';
+
+            fetch(`/shop/buy/${encodeURIComponent(itemId)}`, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo comprar el objeto.');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        return;
+                    }
+
+                    document.getElementById('balance-amount').textContent = data.new_balance;
+
+                    if (isBanner) {
+                        // Pasa a formar parte del mismo grupo de botones
+                        // "Equipar / Equipado" que los demás banners que ya
+                        // tenías, para poder cambiarlo más adelante.
+                        btn.classList.remove('locked');
+                        btn.classList.add('banner-toggle-btn');
+                        btn.onclick = () => equipItem(btn);
+                        btn.disabled = false;
+                        refreshBannerButtons(data.equipped_banner);
+                        maybeShowUnequipLink(data.equipped_banner);
+                    } else {
+                        btn.textContent = '✅ Ya lo tienes';
+                        btn.classList.remove('locked');
+                        btn.classList.add('owned');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error al comprar:', err);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                });
+        }
+
+        function equipItem(btn) {
+            const itemId = btn.dataset.itemId;
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Equipando...';
+
+            fetch(`/shop/equip/${encodeURIComponent(itemId)}`, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo equipar el objeto.');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        return;
+                    }
+
+                    refreshBannerButtons(data.equipped_banner);
+                    maybeShowUnequipLink(data.equipped_banner);
+                })
+                .catch(err => {
+                    console.error('Error al equipar:', err);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                });
+        }
+
+        function unequipBanner() {
+            const link = document.getElementById('unequip-banner-btn');
+            fetch('/shop/unequip', { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo quitar el banner.');
+                        return;
+                    }
+                    refreshBannerButtons(null);
+                    if (link) link.remove();
+                })
+                .catch(err => console.error('Error al quitar el banner:', err));
+        }
+
+        // Deja un solo banner marcado como "✅ Equipado" (el que llegó en
+        // equippedId) y a todos los demás que ya tenías comprados como
+        // "Equipar", clicables para cambiar en cualquier momento.
+        function refreshBannerButtons(equippedId) {
+            document.querySelectorAll('.banner-toggle-btn').forEach(b => {
+                const isThisOne = b.dataset.itemId === equippedId;
+                b.disabled = isThisOne;
+                b.textContent = isThisOne ? '✅ Equipado' : 'Equipar';
+                b.classList.toggle('owned', isThisOne);
+                b.classList.toggle('equip', !isThisOne);
+            });
+        }
+
+        function maybeShowUnequipLink(equippedId) {
+            if (equippedId && !document.getElementById('unequip-banner-btn')) {
+                const btn = document.createElement('button');
+                btn.className = 'unequip-link';
+                btn.id = 'unequip-banner-btn';
+                btn.textContent = 'Quitar banner actual';
+                btn.onclick = unequipBanner;
+                document.querySelector('.header-right').appendChild(btn);
+            }
+        }
+    </script>
+</body>
+</html>
