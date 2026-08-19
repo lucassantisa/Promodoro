@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tienda - Promodoro</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
@@ -47,6 +50,10 @@
         @keyframes float {
             0% { transform: translate(0, 0) scale(1); }
             100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        @media (hover: none) and (pointer: coarse), (prefers-reduced-motion: reduce) {
+            .ambient-light { animation: none; }
         }
 
         .shop-card {
@@ -109,6 +116,17 @@
             background: #000;
         }
         .item-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+        .font-preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(15, 23, 42, 0.5));
+            font-size: 1.9rem;
+            font-weight: 900;
+            color: var(--text-main);
+            letter-spacing: 3px;
+        }
 
         .item-name { font-weight: 700; font-size: 1rem; }
         .item-desc { color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; flex-grow: 1; }
@@ -190,6 +208,9 @@
                 {% if user.equipped_banner %}
                 <button class="unequip-link" id="unequip-banner-btn" onclick="unequipBanner()">Quitar banner actual</button>
                 {% endif %}
+                {% if user.equipped_font %}
+                <button class="unequip-link" id="unequip-font-btn" onclick="unequipFont()">Quitar tipografía actual</button>
+                {% endif %}
             </div>
         </div>
 
@@ -197,7 +218,11 @@
         <div class="shop-grid">
             {% for item in items %}
             <div class="item-card">
-                <div class="item-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}"></div>
+                {% if item.type == 'font' %}
+                <div class="item-preview font-preview" style="font-family: '{{ item.font_family }}', monospace;">25:00</div>
+                {% else %}
+                <div class="item-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}" loading="lazy" decoding="async"></div>
+                {% endif %}
                 <div class="item-name">{{ item.name }}</div>
                 <div class="item-desc">{{ item.description }}</div>
                 <div class="item-price">{{ item.price }} pts</div>
@@ -208,6 +233,12 @@
                             <button class="buy-btn owned banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
                         {% else %}
                             <button class="buy-btn equip banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)">Equipar</button>
+                        {% endif %}
+                    {% elif item.type == 'font' %}
+                        {% if user.equipped_font == item.id %}
+                            <button class="buy-btn owned font-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
+                        {% else %}
+                            <button class="buy-btn equip font-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)">Equipar</button>
                         {% endif %}
                     {% else %}
                         <button class="buy-btn owned" disabled>✅ Ya lo tienes</button>
@@ -230,7 +261,8 @@
     <script>
         function buyItem(btn) {
             const itemId = btn.dataset.itemId;
-            const isBanner = btn.dataset.itemType === 'banner';
+            const itemType = btn.dataset.itemType;
+            const isEquippable = itemType === 'banner' || itemType === 'font';
             btn.disabled = true;
             const originalText = btn.textContent;
             btn.textContent = 'Comprando...';
@@ -255,16 +287,23 @@
 
                     document.getElementById('balance-amount').textContent = data.new_balance;
 
-                    if (isBanner) {
+                    if (isEquippable) {
                         // Pasa a formar parte del mismo grupo de botones
-                        // "Equipar / Equipado" que los demás banners que ya
-                        // tenías, para poder cambiarlo más adelante.
+                        // "Equipar / Equipado" que los demás objetos del
+                        // mismo tipo que ya tenías, para poder cambiarlo
+                        // más adelante.
+                        const toggleClass = itemType === 'banner' ? 'banner-toggle-btn' : 'font-toggle-btn';
                         btn.classList.remove('locked');
-                        btn.classList.add('banner-toggle-btn');
+                        btn.classList.add(toggleClass);
                         btn.onclick = () => equipItem(btn);
                         btn.disabled = false;
-                        refreshBannerButtons(data.equipped_banner);
-                        maybeShowUnequipLink(data.equipped_banner);
+                        if (itemType === 'banner') {
+                            refreshBannerButtons(data.equipped_banner);
+                            maybeShowUnequipLink('banner', data.equipped_banner);
+                        } else {
+                            refreshFontButtons(data.equipped_font);
+                            maybeShowUnequipLink('font', data.equipped_font);
+                        }
                     } else {
                         btn.textContent = '✅ Ya lo tienes';
                         btn.classList.remove('locked');
@@ -280,6 +319,7 @@
 
         function equipItem(btn) {
             const itemId = btn.dataset.itemId;
+            const isFont = btn.classList.contains('font-toggle-btn');
             btn.disabled = true;
             const originalText = btn.textContent;
             btn.textContent = 'Equipando...';
@@ -302,8 +342,13 @@
                         return;
                     }
 
-                    refreshBannerButtons(data.equipped_banner);
-                    maybeShowUnequipLink(data.equipped_banner);
+                    if (isFont) {
+                        refreshFontButtons(data.equipped_font);
+                        maybeShowUnequipLink('font', data.equipped_font);
+                    } else {
+                        refreshBannerButtons(data.equipped_banner);
+                        maybeShowUnequipLink('banner', data.equipped_banner);
+                    }
                 })
                 .catch(err => {
                     console.error('Error al equipar:', err);
@@ -334,6 +379,28 @@
                 .catch(err => console.error('Error al quitar el banner:', err));
         }
 
+        function unequipFont() {
+            const link = document.getElementById('unequip-font-btn');
+            fetch('/shop/unequip_font', { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo quitar la tipografía.');
+                        return;
+                    }
+                    refreshFontButtons(null);
+                    if (link) link.remove();
+                })
+                .catch(err => console.error('Error al quitar la tipografía:', err));
+        }
+
         // Deja un solo banner marcado como "✅ Equipado" (el que llegó en
         // equippedId) y a todos los demás que ya tenías comprados como
         // "Equipar", clicables para cambiar en cualquier momento.
@@ -347,13 +414,26 @@
             });
         }
 
-        function maybeShowUnequipLink(equippedId) {
-            if (equippedId && !document.getElementById('unequip-banner-btn')) {
+        // Mismo comportamiento que refreshBannerButtons, pero para las
+        // tipografías del temporizador.
+        function refreshFontButtons(equippedId) {
+            document.querySelectorAll('.font-toggle-btn').forEach(b => {
+                const isThisOne = b.dataset.itemId === equippedId;
+                b.disabled = isThisOne;
+                b.textContent = isThisOne ? '✅ Equipado' : 'Equipar';
+                b.classList.toggle('owned', isThisOne);
+                b.classList.toggle('equip', !isThisOne);
+            });
+        }
+
+        function maybeShowUnequipLink(kind, equippedId) {
+            const linkId = kind === 'banner' ? 'unequip-banner-btn' : 'unequip-font-btn';
+            if (equippedId && !document.getElementById(linkId)) {
                 const btn = document.createElement('button');
                 btn.className = 'unequip-link';
-                btn.id = 'unequip-banner-btn';
-                btn.textContent = 'Quitar banner actual';
-                btn.onclick = unequipBanner;
+                btn.id = linkId;
+                btn.textContent = kind === 'banner' ? 'Quitar banner actual' : 'Quitar tipografía actual';
+                btn.onclick = kind === 'banner' ? unequipBanner : unequipFont;
                 document.querySelector('.header-right').appendChild(btn);
             }
         }

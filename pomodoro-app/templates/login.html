@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Iniciar Sesión - Promodoro</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
@@ -48,6 +51,10 @@
         @keyframes float {
             0% { transform: translate(0, 0) scale(1); }
             100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        @media (hover: none) and (pointer: coarse), (prefers-reduced-motion: reduce) {
+            .ambient-light { animation: none; }
         }
 
         .container {
@@ -99,6 +106,23 @@
             font-size: 0.95rem;
         }
         input:focus { border-color: var(--accent); }
+        input.pw-field { padding-right: 42px; }
+
+        .toggle-password-btn {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.9rem;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+        }
+        .toggle-password-btn:hover { color: var(--text-main); }
 
         .btn {
             background: linear-gradient(135deg, var(--accent), #6d28d9);
@@ -157,13 +181,27 @@
             </div>
             <div class="input-group">
                 <i class="fas fa-lock"></i>
-                <input type="password" name="password" placeholder="Contraseña" required>
+                <input type="password" name="password" id="password-input" class="pw-field" placeholder="Contraseña" required>
+                <button type="button" class="toggle-password-btn" id="toggle-password-btn" tabindex="-1" aria-label="Mostrar contraseña">
+                    <i class="fas fa-eye"></i>
+                </button>
             </div>
             <button type="submit" class="btn">Entrar</button>
         </form>
 
         <div class="switch-link">¿No tienes cuenta? <a href="/register">Regístrate aquí</a></div>
     </div>
+
+    <script>
+        const togglePasswordBtn = document.getElementById('toggle-password-btn');
+        const passwordInput = document.getElementById('password-input');
+
+        togglePasswordBtn.addEventListener('click', () => {
+            const isHidden = passwordInput.type === 'password';
+            passwordInput.type = isHidden ? 'text' : 'password';
+            togglePasswordBtn.innerHTML = isHidden ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+        });
+    </script>
 
 </body>
 </html>

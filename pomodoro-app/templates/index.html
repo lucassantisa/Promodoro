@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Promodoro</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdn.pixabay.com">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Space+Mono:wght@400;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <!-- Precarga piano y lluvia en segundo plano para que no demoren al elegirlas -->
@@ -55,6 +59,18 @@
         @keyframes float {
             0% { transform: translate(0, 0) scale(1); }
             100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        /* En tablets/celulares, animar un elemento con blur() tan grande
+           DETRÁS de un panel con backdrop-filter es muy pesado para la GPU:
+           causa tirones que se sienten como "zoom" y a veces hace que el
+           navegador falle al componer el frame y se vea negro un instante.
+           Se desactiva la animación (el blur decorativo se queda fijo) en
+           pantallas táctiles y para quienes prefieren menos movimiento. */
+        @media (hover: none) and (pointer: coarse), (prefers-reduced-motion: reduce) {
+            .ambient-light {
+                animation: none;
+            }
         }
 
         .app-container {
@@ -494,6 +510,11 @@
             margin: 15px 0;
             color: #ffffff;
         }
+        .main-display.font-orbitron {
+            font-family: 'Orbitron', monospace;
+            font-weight: 900;
+            letter-spacing: 4px;
+        }
 
         .time-controls {
             display: flex;
@@ -733,6 +754,18 @@
         .calendar-nav-btn:hover { background: rgba(139, 92, 246, 0.15); color: var(--text-main); }
         .calendar-month-label { font-size: 0.85rem; font-weight: 600; min-width: 115px; text-align: center; }
 
+        .week-total-pill {
+            text-align: center;
+            background: rgba(139, 92, 246, 0.08);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+        }
+        .week-total-pill strong { color: var(--text-main); }
+
         .calendar-weekdays {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
@@ -864,10 +897,10 @@
         <div class="profile-column">
             <div class="user-header">
                 <a href="/profile" class="profile-section" title="Editar Perfil">
-                    <img src="{{ user.profile_pic }}" alt="Avatar" class="profile-avatar">
+                    <img src="{{ user.profile_pic }}" alt="Avatar" class="profile-avatar" decoding="async">
                     <div class="user-details">
                         <div class="username">{{ user.username }}</div>
-                        <div class="points-badge"><span id="score">{{ user.pomodoros }}</span> 🍅 pomodoros</div>
+                        <div class="points-badge"><span id="score">{{ user.pomodoros }}</span> 🍅 pomotates</div>
                     </div>
                 </a>
                 <div class="nav-links">
@@ -918,7 +951,7 @@
             </div>
 
             <div class="content-area">
-                <div class="main-display" id="timer">25:00</div>
+                <div class="main-display {{ timer_font_class }}" id="timer">25:00</div>
 
                 <div class="time-controls">
                     <label>Estudio (min) <input type="number" id="study-time" value="25" min="1"></label>
@@ -931,7 +964,7 @@
                 <button class="action-btn secondary" onclick="pauseTimer()">Pausar</button>
                 <button class="action-btn secondary" onclick="resetTimer()">Reiniciar</button>
             </div>
-            <button class="redeem-btn" id="redeem-points-btn" onclick="redeemPoints()">Canjear puntos ahora 💰</button>
+            <button class="redeem-btn" id="redeem-points-btn" onclick="redeemPoints()">Terminar bloque de estudio ahora ⏹️</button>
             <button class="action-btn skip-btn hidden" id="skip-break-btn" onclick="skipBreak()">Saltar descanso ⏭️</button>
         </div>
 
@@ -1006,6 +1039,7 @@
                             <button class="calendar-nav-btn" id="calendar-next-btn" title="Mes siguiente"><i class="fas fa-chevron-right"></i></button>
                         </div>
                     </div>
+                    <div class="week-total-pill" id="week-total-pill">📅 Esta semana: <strong id="week-total-value">0 min</strong></div>
                     <div class="calendar-weekdays">
                         <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
                     </div>
@@ -1027,7 +1061,7 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js" defer></script>
     <script>
         const TRACKS = {
             lofi: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
@@ -1042,11 +1076,13 @@
         const volumeIcon = document.querySelector('.volume-icon');
         audio.volume = volumeSlider.value / 100;
 
-        // Piano y lluvia se descargan enteras a memoria (blob) apenas carga
-        // la página, en vez de pedirlas recién al hacer clic. Si para cuando
-        // el usuario las elige ya terminaron de descargar, suenan al instante.
-        // Si la descarga en segundo plano falla (ej. por CORS), no pasa
-        // nada: se reproduce igual desde la URL original como antes.
+        // Piano y lluvia se descargan enteras a memoria (blob) para que no
+        // demoren al elegirlas, pero se espera a que la página termine de
+        // cargar (evento "load") y el navegador esté libre (requestIdleCallback)
+        // para arrancar esas descargas. Así no compiten por ancho de banda con
+        // lo importante (fuentes, avatar, carpetas, fechas de prueba) durante
+        // la carga inicial. Si la descarga en segundo plano falla (ej. por
+        // CORS), no pasa nada: se reproduce igual desde la URL original.
         const trackBlobCache = {};
 
         function prefetchTrack(key, url) {
@@ -1059,8 +1095,20 @@
                 .catch(err => console.log(`No se pudo precargar "${key}" en segundo plano:`, err));
         }
 
-        Object.keys(TRACKS).forEach(key => {
-            if (key !== audio.dataset.currentTrack) prefetchTrack(key, TRACKS[key]);
+        function schedulePrefetch(fn) {
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(fn, { timeout: 4000 });
+            } else {
+                setTimeout(fn, 1500);
+            }
+        }
+
+        window.addEventListener('load', () => {
+            schedulePrefetch(() => {
+                Object.keys(TRACKS).forEach(key => {
+                    if (key !== audio.dataset.currentTrack) prefetchTrack(key, TRACKS[key]);
+                });
+            });
         });
 
         function updateVolumeIcon() {
@@ -1433,6 +1481,17 @@
             return Math.round((target - today) / 86400000);
         }
 
+        // OJO: Date.toISOString() siempre da la fecha en UTC, no en la hora
+        // local del navegador. De noche en Chile eso puede devolver "mañana"
+        // en vez de "hoy". Esta función arma el string a partir de los
+        // componentes LOCALES (año/mes/día) para evitar ese desfase.
+        function localDateStr(date = new Date()) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
         function formatExamDate(dateStr) {
             const d = new Date(dateStr + 'T00:00:00');
             return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
@@ -1502,7 +1561,7 @@
             }
             newExamInputWrap.classList.remove('hidden');
             newExamTitleInput.value = '';
-            newExamDateInput.value = new Date().toISOString().split('T')[0]; // sugiere hoy
+            newExamDateInput.value = localDateStr(); // sugiere hoy
             newExamTitleInput.focus();
         });
 
@@ -1715,17 +1774,25 @@
             switchToStudy();
         }
 
+        // Minutos de estudio ya avanzados en el bloque actual que todavía no
+        // se guardaron (ver redeemPoints). Se reutiliza también para avisar
+        // antes de cerrar la pestaña.
+        function getUnclaimedStudyMinutes() {
+            if (!isStudyMode || !isRunning) return 0;
+            const totalMinutes = getValidatedMinutes(true);
+            const elapsedSeconds = (totalMinutes * 60) - timeLeft;
+            return Math.floor(elapsedSeconds / 60);
+        }
+
         // Canjea los puntos del tiempo ya estudiado en este bloque, sin esperar
         // a que el temporizador llegue a 0 (ej: te tienes que ir antes de tiempo).
         function redeemPoints() {
             if (!isStudyMode) {
-                showNotice("Solo puedes canjear puntos durante un bloque de estudio.");
+                showNotice("Solo puedes terminar el bloque durante el estudio.");
                 return;
             }
 
-            const totalMinutes = getValidatedMinutes(true);
-            const elapsedSeconds = (totalMinutes * 60) - timeLeft;
-            const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+            const elapsedMinutes = getUnclaimedStudyMinutes();
 
             if (elapsedMinutes < 1) {
                 showNotice("Todavía no llevas ni un minuto de estudio en este bloque.");
@@ -1733,7 +1800,7 @@
             }
 
             const label = elapsedMinutes === 1 ? '1 punto' : `${elapsedMinutes} puntos`;
-            if (!confirm(`¿Canjear ${label} y terminar este bloque de estudio ahora?`)) {
+            if (!confirm(`¿Terminar este bloque de estudio ahora y quedarte con ${label}?`)) {
                 return;
             }
 
@@ -1743,6 +1810,17 @@
             showNotice(`¡Canjeaste ${label}! 🏆`);
             resetTimer();
         }
+
+        // Avisa antes de cerrar/recargar la pestaña si hay minutos de este
+        // bloque que todavía no se guardaron, para que no se pierdan sin
+        // querer. Nota: por seguridad, los navegadores modernos ignoran
+        // cualquier texto personalizado y muestran su propio mensaje genérico
+        // de "¿seguro que quieres salir?" — igual sirve como aviso.
+        window.addEventListener('beforeunload', (e) => {
+            if (getUnclaimedStudyMinutes() < 1) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
 
         function addPointsToAccount(points) {
             fetch('/add_points', {
@@ -1796,10 +1874,11 @@
             return m > 0 ? `${h}h ${m}min` : `${h}h`;
         }
 
-        if (window.Chart) {
-            Chart.defaults.color = '#94a3b8';
-            Chart.defaults.font.family = "'Poppins', sans-serif";
-        }
+        // Chart.js ahora carga con "defer" (no bloquea el renderizado), así que
+        // sus valores por defecto se configuran recién dentro de renderFolderChart(),
+        // justo antes de crear el gráfico, cuando ya seguro está cargado
+        // (el gráfico solo se crea cuando el usuario abre las estadísticas,
+        // mucho después de que termine de cargar la página).
 
         function openStats() {
             statsOverlay.classList.remove('hidden');
@@ -1821,7 +1900,7 @@
         });
 
         function loadProductivityStats() {
-            fetch('/productivity_stats')
+            fetch(`/productivity_stats?tz_offset=${new Date().getTimezoneOffset()}`)
                 .then(response => {
                     if (response.status === 401) {
                         window.location.href = '/login';
@@ -1833,6 +1912,8 @@
                     if (!data) return;
                     statsData = data;
                     renderFolderChart();
+                    const weekTotalValue = document.getElementById('week-total-value');
+                    if (weekTotalValue) weekTotalValue.textContent = formatMinutes(data.week_total_minutes || 0);
                 })
                 .catch(err => console.error('Error al cargar estadísticas:', err));
         }
@@ -1854,7 +1935,7 @@
         const calendarDetailTime = document.getElementById('calendar-detail-time');
 
         function loadCalendarStats() {
-            fetch(`/calendar_stats?year=${calendarYear}&month=${calendarMonth}`)
+            fetch(`/calendar_stats?year=${calendarYear}&month=${calendarMonth}&tz_offset=${new Date().getTimezoneOffset()}`)
                 .then(response => {
                     if (response.status === 401) {
                         window.location.href = '/login';
@@ -1878,7 +1959,7 @@
             const firstDay = new Date(calendarYear, calendarMonth - 1, 1);
             const startWeekday = firstDay.getDay(); // 0 = domingo
             const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = localDateStr();
 
             for (let i = 0; i < startWeekday; i++) {
                 const filler = document.createElement('div');
@@ -1952,6 +2033,9 @@
                 folderChart.update();
                 return;
             }
+
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Poppins', sans-serif";
 
             folderChart = new Chart(canvas.getContext('2d'), {
                 type: 'bar',
@@ -2039,7 +2123,7 @@
             searchResults.innerHTML = results.map(u => `
                 <div class="search-result-item">
                     <a href="/profile/${encodeURIComponent(u.username)}" class="search-result-link">
-                        <img src="${escapeHtml(u.profile_pic)}" class="search-avatar" alt="Avatar">
+                        <img src="${escapeHtml(u.profile_pic)}" class="search-avatar" alt="Avatar" loading="lazy" decoding="async">
                         <span class="search-username">${escapeHtml(u.username)}</span>
                     </a>
                     <span class="search-points">${u.pomodoros} 🍅</span>

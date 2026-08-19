@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ profile_user.username }} - Perfil - Promodoro</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
@@ -49,6 +52,10 @@
             100% { transform: translate(30px, 50px) scale(1.1); }
         }
 
+        @media (hover: none) and (pointer: coarse), (prefers-reduced-motion: reduce) {
+            .ambient-light { animation: none; }
+        }
+
         .profile-card {
             background: var(--bg-panel);
             backdrop-filter: blur(16px);
@@ -64,16 +71,18 @@
             overflow: hidden;
         }
 
-        /* Banner comprado en la tienda, se muestra detrás de la cabecera del perfil */
+        /* Banner comprado en la tienda, se muestra detrás de la cabecera del perfil.
+           Es un <img> (no background-image) con decoding="async" para que el
+           navegador decodifique el GIF en segundo plano y no se "pegue" el
+           primer frame mientras carga. */
         .profile-banner {
             position: absolute;
             top: -40px;
             left: -40px;
             right: -40px;
             height: 190px;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
+            width: calc(100% + 80px);
+            object-fit: cover;
             z-index: 0;
             -webkit-mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
             mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
@@ -187,8 +196,10 @@
         /* --- Fila de estadísticas --- */
         .stats-row {
             display: flex;
+            flex-wrap: wrap;
             justify-content: center;
             gap: 10px;
+            row-gap: 14px;
             width: 100%;
             margin-top: 28px;
             border-top: 1px solid var(--border-color);
@@ -346,15 +357,15 @@
     <div class="ambient-light light-1"></div>
     <div class="ambient-light light-2"></div>
 
-    <div class="profile-card">
+    <div class="profile-card" data-profile-username="{{ profile_user.username }}">
 
         {% if banner_url %}
-        <div class="profile-banner" style="background-image: url('{{ banner_url }}');"></div>
+        <img class="profile-banner" src="{{ banner_url }}" alt="" decoding="async">
         {% endif %}
 
         <!-- Cabecera -->
         <div class="profile-top">
-            <img src="{{ profile_user.profile_pic }}" alt="Foto de Perfil" class="big-avatar" id="avatar-preview">
+            <img src="{{ profile_user.profile_pic }}" alt="Foto de Perfil" class="big-avatar" id="avatar-preview" decoding="async">
             <div class="profile-username">{{ profile_user.username }}</div>
 
             {% if is_own %}
@@ -380,7 +391,11 @@
             <div class="stats-row">
                 <div class="stat-box static">
                     <strong>{{ profile_user.pomodoros }}</strong>
-                    <span>Pomodoros 🍅</span>
+                    <span>Pomotates 🍅</span>
+                </div>
+                <div class="stat-box static">
+                    <strong id="streak-count">0</strong>
+                    <span>Racha 🔥</span>
                 </div>
                 <button class="stat-box" data-tab-target="followers">
                     <strong id="followers-count">{{ profile_user.followers_count }}</strong>
@@ -413,7 +428,7 @@
                 {% for p in followers %}
                 <div class="person-row">
                     <a href="{{ '/profile' if p.id == user.id else '/profile/' ~ p.username }}" class="person-link">
-                        <img src="{{ p.profile_pic }}" class="person-avatar" alt="Avatar">
+                        <img src="{{ p.profile_pic }}" class="person-avatar" alt="Avatar" loading="lazy" decoding="async">
                         <span class="person-name">{{ p.username }}</span>
                     </a>
                     <span class="person-points">{{ p.pomodoros }} 🍅</span>
@@ -438,7 +453,7 @@
                 {% for p in following %}
                 <div class="person-row">
                     <a href="{{ '/profile' if p.id == user.id else '/profile/' ~ p.username }}" class="person-link">
-                        <img src="{{ p.profile_pic }}" class="person-avatar" alt="Avatar">
+                        <img src="{{ p.profile_pic }}" class="person-avatar" alt="Avatar" loading="lazy" decoding="async">
                         <span class="person-name">{{ p.username }}</span>
                     </a>
                     <span class="person-points">{{ p.pomodoros }} 🍅</span>
@@ -503,6 +518,23 @@
         document.querySelectorAll('[data-tab-target]').forEach(el => {
             el.addEventListener('click', () => activateTab(el.dataset.tabTarget));
         });
+
+        // --- Racha de estudio (días seguidos con 60+ min) ---
+        const streakUsername = document.querySelector('.profile-card').dataset.profileUsername;
+        fetch(`/streak_info?username=${encodeURIComponent(streakUsername)}&tz_offset=${new Date().getTimezoneOffset()}`)
+            .then(response => {
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return null;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && typeof data.streak === 'number') {
+                    document.getElementById('streak-count').textContent = data.streak;
+                }
+            })
+            .catch(err => console.error('Error al cargar la racha:', err));
 
         // --- Seguir / Dejar de seguir (delegado, funciona con botones creados dinámicamente) ---
         function escapeHtml(str) {
@@ -571,7 +603,7 @@
             findResults.innerHTML = results.map(u => `
                 <div class="person-row">
                     <a href="/profile/${encodeURIComponent(u.username)}" class="person-link">
-                        <img src="${escapeHtml(u.profile_pic)}" class="person-avatar" alt="Avatar">
+                        <img src="${escapeHtml(u.profile_pic)}" class="person-avatar" alt="Avatar" loading="lazy" decoding="async">
                         <span class="person-name">${escapeHtml(u.username)}</span>
                     </a>
                     <span class="person-points">${u.pomodoros} 🍅</span>

@@ -60,7 +60,22 @@ SHOP_ITEMS = {
         'price': 150,
         'type': 'banner',
         'image_url': 'https://cdn.pixabay.com/animation/2026/05/09/09/34/09-34-48-912_256.gif'
+    },
+    'font_orbitron': {
+        'id': 'font_orbitron',
+        'name': 'Tipografía Orbitron',
+        'description': 'Una tipografía futurista y geométrica para los números de tu temporizador.',
+        'price': 50,
+        'type': 'font',
+        'font_family': 'Orbitron'
     }
+}
+
+# Fuentes desbloqueables: id del objeto de la tienda -> clase CSS que la aplica
+# en el temporizador. Se usa para no tener que tocar el HTML cada vez que se
+# agregue una tipografía nueva a la tienda.
+FONT_CSS_CLASSES = {
+    'font_orbitron': 'font-orbitron'
 }
 
 db = SQLAlchemy(app)
@@ -131,6 +146,7 @@ class User(db.Model):
     profile_pic = db.Column(db.String(300), default='https://i.imgur.com/6VBx3io.png') # Avatar por defecto
     balance = db.Column(db.Integer, default=0)  # Puntos gastables en la tienda (no baja el total/rango)
     equipped_banner = db.Column(db.String(50), nullable=True)  # id del banner activo en el perfil
+    equipped_font = db.Column(db.String(50), nullable=True)  # id de la tipografía activa en el temporizador
 
     # --- Relaciones de seguidores (sistema tipo red social) ---
     following = db.relationship(
@@ -253,7 +269,8 @@ def index():
         return redirect(url_for('login'))
 
     rank = get_rank_info(user.pomodoros)
-    return render_template('index.html', user=user, rank=rank, ranks=RANKS)
+    timer_font_class = FONT_CSS_CLASSES.get(user.equipped_font, '')
+    return render_template('index.html', user=user, rank=rank, ranks=RANKS, timer_font_class=timer_font_class)
 
 def render_profile_page(viewer, profile_user, error=None):
     """Arma el contexto compartido por /profile y /profile/<username>."""
@@ -577,20 +594,23 @@ def buy_item(item_id):
     user.balance -= item['price']
     db.session.add(Purchase(user_id=user.id, item_id=item_id))
 
-    # Si es un banner y el usuario todavía no tiene ninguno equipado, se lo
-    # equipa automáticamente como cortesía (para que la primera compra se
-    # note altiro). Si ya tenía uno puesto, se respeta su elección: puede
-    # cambiarlo cuando quiera con el botón "Equipar" de cada banner que
-    # ya compró.
+    # Si es un banner o una tipografía y el usuario todavía no tiene ninguno
+    # equipado de ese tipo, se lo equipa automáticamente como cortesía (para
+    # que la primera compra se note altiro). Si ya tenía uno puesto, se
+    # respeta su elección: puede cambiarlo cuando quiera con el botón
+    # "Equipar" del objeto que ya compró.
     if item['type'] == 'banner' and user.equipped_banner is None:
         user.equipped_banner = item_id
+    elif item['type'] == 'font' and user.equipped_font is None:
+        user.equipped_font = item_id
 
     db.session.commit()
 
     return jsonify({
         "success": True,
         "new_balance": user.balance,
-        "equipped_banner": user.equipped_banner
+        "equipped_banner": user.equipped_banner,
+        "equipped_font": user.equipped_font
     })
 
 
@@ -608,16 +628,23 @@ def equip_item(item_id):
     if item is None:
         return jsonify({"error": "Objeto no encontrado"}), 404
 
-    if item['type'] != 'banner':
+    if item['type'] not in ('banner', 'font'):
         return jsonify({"error": "Este objeto no se puede equipar"}), 400
 
     if not user.owns_item(item_id):
         return jsonify({"error": "No tienes este objeto"}), 403
 
-    user.equipped_banner = item_id
+    if item['type'] == 'banner':
+        user.equipped_banner = item_id
+    else:
+        user.equipped_font = item_id
     db.session.commit()
 
-    return jsonify({"success": True, "equipped_banner": user.equipped_banner})
+    return jsonify({
+        "success": True,
+        "equipped_banner": user.equipped_banner,
+        "equipped_font": user.equipped_font
+    })
 
 
 @app.route('/shop/unequip', methods=['POST'])
@@ -634,6 +661,22 @@ def unequip_banner():
     db.session.commit()
 
     return jsonify({"success": True, "equipped_banner": None})
+
+
+@app.route('/shop/unequip_font', methods=['POST'])
+def unequip_font():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    user.equipped_font = None
+    db.session.commit()
+
+    return jsonify({"success": True, "equipped_font": None})
 
 
 @app.route('/exam_dates', methods=['GET'])
@@ -719,6 +762,19 @@ def _months_back(base, n):
     return y, m + 1
 
 
+def get_tz_offset():
+    """Minutos de diferencia entre UTC y la hora local del navegador,
+    tal cual los entrega JS con Date.getTimezoneOffset() (ej. Chile
+    continental es +180 o +240 según horario de verano). El servidor
+    guarda todo en UTC, así que sin este ajuste "hoy" queda calculado en
+    UTC y puede ir un día adelantado respecto al usuario (ej. de noche
+    en Chile, en UTC ya es el día siguiente)."""
+    try:
+        return int(request.args.get('tz_offset', 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 @app.route('/productivity_stats')
 def productivity_stats():
     if 'user_id' not in session:
@@ -729,13 +785,17 @@ def productivity_stats():
         session.clear()
         return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
 
-    now = datetime.utcnow()
+    offset = get_tz_offset()
+    now = datetime.utcnow() - timedelta(minutes=offset)  # "ahora" en la hora local del usuario
 
     # --- Serie diaria: últimos 14 días ---
-    daily_start = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+    daily_start_local = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+    daily_start_utc = daily_start_local + timedelta(minutes=offset)
+
     daily_minutes = defaultdict(int)
-    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= daily_start).all():
-        daily_minutes[s.completed_at.date().isoformat()] += s.minutes
+    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= daily_start_utc).all():
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        daily_minutes[local_dt.date().isoformat()] += s.minutes
 
     daily_series = []
     for i in range(13, -1, -1):
@@ -743,10 +803,12 @@ def productivity_stats():
         daily_series.append({"label": day.strftime('%d/%m'), "minutes": daily_minutes.get(day.isoformat(), 0)})
 
     # --- Serie semanal: últimas 8 semanas ---
-    weekly_start = now - timedelta(weeks=8)
+    weekly_start_local = now - timedelta(weeks=8)
+    weekly_start_utc = weekly_start_local + timedelta(minutes=offset)
     weekly_minutes = defaultdict(int)
-    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= weekly_start).all():
-        y, w, _ = s.completed_at.isocalendar()
+    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= weekly_start_utc).all():
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        y, w, _ = local_dt.isocalendar()
         weekly_minutes[f"{y}-W{w:02d}"] += s.minutes
 
     weekly_series = []
@@ -757,9 +819,11 @@ def productivity_stats():
 
     # --- Serie mensual: últimos 6 meses ---
     earliest_year, earliest_month = _months_back(now, 5)
+    monthly_start_utc = datetime(earliest_year, earliest_month, 1) + timedelta(minutes=offset)
     monthly_minutes = defaultdict(int)
-    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= datetime(earliest_year, earliest_month, 1)).all():
-        monthly_minutes[f"{s.completed_at.year}-{s.completed_at.month:02d}"] += s.minutes
+    for s in StudySession.query.filter(StudySession.user_id == user.id, StudySession.completed_at >= monthly_start_utc).all():
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        monthly_minutes[f"{local_dt.year}-{local_dt.month:02d}"] += s.minutes
 
     monthly_series = []
     for i in range(5, -1, -1):
@@ -770,18 +834,28 @@ def productivity_stats():
     folders = user.folders.order_by(Folder.points.desc()).limit(10).all()
     by_folder = [{"name": f.name, "minutes": f.points} for f in folders if f.points > 0]
 
+    # --- Total de esta semana (lunes a hoy, en hora local) ---
+    week_start_local = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start_utc = week_start_local + timedelta(minutes=offset)
+    week_total_minutes = db.session.query(db.func.coalesce(db.func.sum(StudySession.minutes), 0)).filter(
+        StudySession.user_id == user.id,
+        StudySession.completed_at >= week_start_utc
+    ).scalar()
+
     return jsonify({
         "daily": daily_series,
         "weekly": weekly_series,
         "monthly": monthly_series,
-        "by_folder": by_folder
+        "by_folder": by_folder,
+        "week_total_minutes": week_total_minutes
     })
 
 
 @app.route('/calendar_stats')
 def calendar_stats():
-    """Devuelve, para un mes dado, qué días el usuario completó al menos
-    un bloque de estudio, con cuántos bloques y minutos totales ese día."""
+    """Devuelve, para un mes dado (en la hora local del usuario), qué días
+    completó al menos un bloque de estudio, con cuántos bloques y minutos
+    totales ese día."""
     if 'user_id' not in session:
         return jsonify({"error": "No autorizado"}), 401
 
@@ -790,7 +864,9 @@ def calendar_stats():
         session.clear()
         return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
 
-    now = datetime.utcnow()
+    offset = get_tz_offset()
+    now = datetime.utcnow() - timedelta(minutes=offset)
+
     try:
         year = int(request.args.get('year', now.year))
         month = int(request.args.get('month', now.month))
@@ -800,21 +876,78 @@ def calendar_stats():
     if month < 1 or month > 12:
         return jsonify({"error": "Mes inválido"}), 400
 
-    start = datetime(year, month, 1)
-    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    start_local = datetime(year, month, 1)
+    end_local = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+    start_utc = start_local + timedelta(minutes=offset)
+    end_utc = end_local + timedelta(minutes=offset)
 
     days = defaultdict(lambda: {"blocks": 0, "minutes": 0})
     sessions = StudySession.query.filter(
         StudySession.user_id == user.id,
-        StudySession.completed_at >= start,
-        StudySession.completed_at < end
+        StudySession.completed_at >= start_utc,
+        StudySession.completed_at < end_utc
     ).all()
     for s in sessions:
-        key = s.completed_at.date().isoformat()
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        key = local_dt.date().isoformat()
         days[key]["blocks"] += 1
         days[key]["minutes"] += s.minutes
 
     return jsonify({"year": year, "month": month, "days": days})
+
+
+@app.route('/streak_info')
+def streak_info():
+    """Racha de días consecutivos con 60+ min de estudio, en la hora local
+    de quien mira la página (ver get_tz_offset). Si el día de hoy todavía
+    no llega a 60 min no se rompe la racha -el día no ha terminado-, se
+    sigue contando desde ayer hacia atrás.
+
+    Se puede pedir la racha de cualquier usuario con ?username=, para
+    poder mostrarla también al visitar el perfil de otra persona."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    viewer = User.query.get(session['user_id'])
+    if viewer is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    username = request.args.get('username')
+    if username:
+        target = User.query.filter_by(username=username).first()
+        if target is None:
+            return jsonify({"error": "Usuario no encontrado"}), 404
+    else:
+        target = viewer
+
+    offset = get_tz_offset()
+    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
+
+    # Ventana amplia (400 días) para no dejar fuera rachas largas, sin traer
+    # toda la tabla de sesiones de usuarios con mucho historial.
+    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
+    window_start_utc = window_start_local + timedelta(minutes=offset)
+
+    daily_minutes = defaultdict(int)
+    sessions = StudySession.query.filter(
+        StudySession.user_id == target.id,
+        StudySession.completed_at >= window_start_utc
+    ).all()
+    for s in sessions:
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        daily_minutes[local_dt.date()] += s.minutes
+
+    cursor = today_local
+    if daily_minutes.get(cursor, 0) < 60:
+        cursor -= timedelta(days=1)
+
+    streak = 0
+    while daily_minutes.get(cursor, 0) >= 60:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    return jsonify({"streak": streak})
 
 
 @app.route('/search_users')
@@ -869,6 +1002,10 @@ with app.app_context():
 
         if 'equipped_banner' not in existing_columns:
             db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_banner VARCHAR(50)'))
+            db.session.commit()
+
+        if 'equipped_font' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_font VARCHAR(50)'))
             db.session.commit()
 
 if __name__ == '__main__':
