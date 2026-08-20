@@ -731,7 +731,74 @@
         .stats-modal-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 20px; }
         .stats-modal-title { font-weight: 600; font-size: 1.05rem; }
 
-        .stats-modal-body { overflow-y: auto; display: flex; flex-direction: column; gap: 28px; }
+        .stats-modal-body { overflow-y: auto; display: flex; flex-direction: column; }
+
+        /* --- Pestañas del modal (Estadísticas / Top de Usuarios) --- */
+        .tabs-nav {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 10px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .tab-btn.active { color: var(--text-main); border-bottom-color: var(--accent); }
+        .tab-panel { display: none; flex-direction: column; gap: 28px; }
+        .tab-panel.active { display: flex; }
+
+        /* --- Top de usuarios --- */
+        .leaderboard-intro { margin-bottom: 16px; }
+        .leaderboard-list { display: flex; flex-direction: column; gap: 8px; }
+        .leaderboard-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+        }
+        .leaderboard-row.is-you { border-color: var(--accent); background: rgba(139, 92, 246, 0.1); }
+        .leaderboard-position {
+            width: 26px;
+            flex-shrink: 0;
+            text-align: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        .leaderboard-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+            min-width: 0;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+        .leaderboard-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent);
+            flex-shrink: 0;
+        }
+        .leaderboard-username { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .leaderboard-stats { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .leaderboard-pomodoros { color: #a78bfa; font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+        .leaderboard-streak { color: #fb923c; font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
 
         .stats-block-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
         .stats-block-title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
@@ -1029,33 +1096,45 @@
                 <button class="close-search-btn" id="close-stats-btn" title="Cerrar"><i class="fas fa-times"></i></button>
             </div>
 
+            <div class="tabs-nav">
+                <button class="tab-btn active" data-tab-target="stats">📊 Estadísticas</button>
+                <button class="tab-btn" data-tab-target="leaderboard">🏆 Top de Usuarios</button>
+            </div>
+
             <div class="stats-modal-body">
-                <div class="stats-block">
-                    <div class="stats-block-top">
-                        <span class="stats-block-title">Calendario de estudio</span>
-                        <div class="calendar-nav">
-                            <button class="calendar-nav-btn" id="calendar-prev-btn" title="Mes anterior"><i class="fas fa-chevron-left"></i></button>
-                            <span class="calendar-month-label" id="calendar-month-label"></span>
-                            <button class="calendar-nav-btn" id="calendar-next-btn" title="Mes siguiente"><i class="fas fa-chevron-right"></i></button>
+                <div class="tab-panel active" id="panel-stats">
+                    <div class="stats-block">
+                        <div class="stats-block-top">
+                            <span class="stats-block-title">Calendario de estudio</span>
+                            <div class="calendar-nav">
+                                <button class="calendar-nav-btn" id="calendar-prev-btn" title="Mes anterior"><i class="fas fa-chevron-left"></i></button>
+                                <span class="calendar-month-label" id="calendar-month-label"></span>
+                                <button class="calendar-nav-btn" id="calendar-next-btn" title="Mes siguiente"><i class="fas fa-chevron-right"></i></button>
+                            </div>
                         </div>
+                        <div class="week-total-pill" id="week-total-pill">📅 Esta semana: <strong id="week-total-value">0 min</strong></div>
+                        <div class="calendar-weekdays">
+                            <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+                        </div>
+                        <div class="calendar-grid" id="calendar-grid"></div>
+                        <div class="calendar-day-detail hidden" id="calendar-day-detail">
+                            <span class="calendar-detail-date" id="calendar-detail-date"></span>
+                            <div class="calendar-detail-row">Bloques completados: <strong id="calendar-detail-blocks"></strong></div>
+                            <div class="calendar-detail-row">Tiempo de estudio: <strong id="calendar-detail-time"></strong></div>
+                        </div>
+                        <p class="stats-note">📌 Los días resaltados son días en que completaste al menos un bloque de estudio. Tócalos para ver el detalle.</p>
                     </div>
-                    <div class="week-total-pill" id="week-total-pill">📅 Esta semana: <strong id="week-total-value">0 min</strong></div>
-                    <div class="calendar-weekdays">
-                        <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+
+                    <div class="stats-block">
+                        <span class="stats-block-title">Tiempo por carpeta</span>
+                        <div class="stats-chart-wrap stats-chart-folder"><canvas id="folder-chart"></canvas></div>
+                        <p class="stats-empty hidden" id="folder-stats-empty">Aún no tienes tiempo registrado en ninguna carpeta.</p>
                     </div>
-                    <div class="calendar-grid" id="calendar-grid"></div>
-                    <div class="calendar-day-detail hidden" id="calendar-day-detail">
-                        <span class="calendar-detail-date" id="calendar-detail-date"></span>
-                        <div class="calendar-detail-row">Bloques completados: <strong id="calendar-detail-blocks"></strong></div>
-                        <div class="calendar-detail-row">Tiempo de estudio: <strong id="calendar-detail-time"></strong></div>
-                    </div>
-                    <p class="stats-note">📌 Los días resaltados son días en que completaste al menos un bloque de estudio. Tócalos para ver el detalle.</p>
                 </div>
 
-                <div class="stats-block">
-                    <span class="stats-block-title">Tiempo por carpeta</span>
-                    <div class="stats-chart-wrap stats-chart-folder"><canvas id="folder-chart"></canvas></div>
-                    <p class="stats-empty hidden" id="folder-stats-empty">Aún no tienes tiempo registrado en ninguna carpeta.</p>
+                <div class="tab-panel" id="panel-leaderboard">
+                    <p class="stats-note leaderboard-intro">🍅 Necesitas al menos 1 pomotate (1 hora de estudio) para aparecer en el top.</p>
+                    <div class="leaderboard-list" id="leaderboard-list"></div>
                 </div>
             </div>
         </div>
@@ -1860,6 +1939,7 @@
         const statsOverlay = document.getElementById('stats-overlay');
         const closeStatsBtn = document.getElementById('close-stats-btn');
         const folderStatsEmpty = document.getElementById('folder-stats-empty');
+        const leaderboardList = document.getElementById('leaderboard-list');
 
         let statsData = null;
         let folderChart = null;
@@ -1874,6 +1954,15 @@
             return m > 0 ? `${h}h ${m}min` : `${h}h`;
         }
 
+        // --- Pestañas del modal (Estadísticas / Top de Usuarios) ---
+        document.querySelectorAll('#stats-overlay [data-tab-target]').forEach(el => {
+            el.addEventListener('click', () => {
+                const target = el.dataset.tabTarget;
+                document.querySelectorAll('#stats-overlay .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tabTarget === target));
+                document.querySelectorAll('#stats-overlay .tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${target}`));
+            });
+        });
+
         // Chart.js ahora carga con "defer" (no bloquea el renderizado), así que
         // sus valores por defecto se configuran recién dentro de renderFolderChart(),
         // justo antes de crear el gráfico, cuando ya seguro está cargado
@@ -1884,6 +1973,7 @@
             statsOverlay.classList.remove('hidden');
             loadProductivityStats();
             loadCalendarStats();
+            loadLeaderboard();
         }
 
         function closeStats() {
@@ -1906,16 +1996,81 @@
                         window.location.href = '/login';
                         return null;
                     }
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     return response.json();
                 })
                 .then(data => {
                     if (!data) return;
                     statsData = data;
-                    renderFolderChart();
+
+                    // El total semanal se actualiza primero e independiente del
+                    // gráfico de carpetas: si el gráfico llegara a fallar, no
+                    // debe arrastrar a este dato con él (antes sí pasaba, por
+                    // eso a veces "Esta semana" quedaba pegado en 0 min).
                     const weekTotalValue = document.getElementById('week-total-value');
                     if (weekTotalValue) weekTotalValue.textContent = formatMinutes(data.week_total_minutes || 0);
+
+                    renderFolderChart();
                 })
-                .catch(err => console.error('Error al cargar estadísticas:', err));
+                .catch(err => {
+                    console.error('Error al cargar estadísticas:', err);
+                    // Antes esto fallaba en silencio y dejaba el panel de
+                    // "Tiempo por carpeta" en blanco (sin gráfico ni mensaje),
+                    // como si el usuario no tuviera nada registrado. Ahora se
+                    // avisa explícitamente para no confundir un error de red/
+                    // servidor con "no has estudiado en ninguna carpeta".
+                    const canvas = document.getElementById('folder-chart');
+                    if (canvas) canvas.classList.add('hidden');
+                    if (folderStatsEmpty) {
+                        folderStatsEmpty.textContent = 'No se pudieron cargar las estadísticas. Cierra y vuelve a abrir este panel para reintentar.';
+                        folderStatsEmpty.classList.remove('hidden');
+                    }
+                });
+        }
+
+        function loadLeaderboard() {
+            if (!leaderboardList) return;
+            leaderboardList.innerHTML = '<p class="stats-empty">Cargando...</p>';
+
+            fetch(`/leaderboard?tz_offset=${new Date().getTimezoneOffset()}`)
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    renderLeaderboard(data.leaderboard || []);
+                })
+                .catch(err => {
+                    console.error('Error al cargar el top de usuarios:', err);
+                    leaderboardList.innerHTML = '<p class="stats-empty">No se pudo cargar el top. Cierra y vuelve a abrir este panel para reintentar.</p>';
+                });
+        }
+
+        function renderLeaderboard(list) {
+            if (list.length === 0) {
+                leaderboardList.innerHTML = '<p class="stats-empty">Todavía nadie tiene al menos 1 pomotate. ¡Sé el primero! 🍅</p>';
+                return;
+            }
+
+            const medals = ['🥇', '🥈', '🥉'];
+            leaderboardList.innerHTML = list.map((u, i) => `
+                <div class="leaderboard-row ${u.is_you ? 'is-you' : ''}">
+                    <span class="leaderboard-position">${medals[i] || (i + 1)}</span>
+                    <a href="${u.is_you ? '/profile' : '/profile/' + encodeURIComponent(u.username)}" class="leaderboard-link">
+                        <img src="${escapeHtml(u.profile_pic)}" class="leaderboard-avatar" alt="Avatar">
+                        <span class="leaderboard-username">${escapeHtml(u.username)}${u.is_you ? ' (tú)' : ''}</span>
+                    </a>
+                    <span class="leaderboard-stats">
+                        <span class="leaderboard-streak">${u.streak} 🔥</span>
+                        <span class="leaderboard-pomodoros">${u.pomodoros} 🍅</span>
+                    </span>
+                </div>
+            `).join('');
         }
 
         // --- Calendario de estudio (círculos por día) ---
@@ -1941,6 +2096,7 @@
                         window.location.href = '/login';
                         return null;
                     }
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     return response.json();
                 })
                 .then(data => {
@@ -2007,16 +2163,33 @@
             loadCalendarStats();
         });
 
-        function renderFolderChart() {
+        function renderFolderChart(attempt) {
+            attempt = attempt || 0;
             if (!statsData) return;
             const folders = statsData.by_folder || [];
             const canvas = document.getElementById('folder-chart');
 
             if (folders.length === 0) {
                 canvas.classList.add('hidden');
+                folderStatsEmpty.textContent = 'Aún no tienes tiempo registrado en ninguna carpeta.';
                 folderStatsEmpty.classList.remove('hidden');
                 return;
             }
+
+            // Chart.js carga con "defer"; normalmente ya está listo para cuando
+            // el usuario abre las estadísticas, pero si todavía no terminó de
+            // cargar (red lenta, etc.), reintenta en vez de romper el panel.
+            if (typeof Chart === 'undefined') {
+                if (attempt >= 20) {
+                    canvas.classList.add('hidden');
+                    folderStatsEmpty.textContent = 'No se pudo cargar el gráfico. Cierra y vuelve a abrir las estadísticas.';
+                    folderStatsEmpty.classList.remove('hidden');
+                    return;
+                }
+                setTimeout(() => renderFolderChart(attempt + 1), 300);
+                return;
+            }
+
             canvas.classList.remove('hidden');
             folderStatsEmpty.classList.add('hidden');
 

@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -79,6 +81,20 @@ FONT_CSS_CLASSES = {
 }
 
 db = SQLAlchemy(app)
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    """SQLite en modo por defecto se bloquea fácil cuando dos conexiones lo
+    tocan casi al mismo tiempo (típico con el recargador de Flask en
+    debug=True, o con la carpeta del proyecto sincronizada por OneDrive),
+    y eso se ve como 'disk I/O error' o 'database is locked'. WAL permite
+    leer y escribir a la vez con menos choques, y busy_timeout hace que
+    espere unos segundos antes de fallar en vez de tirar el error altiro."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
 
 class Follow(db.Model):
     """Representa la relación 'A sigue a B'."""
@@ -896,6 +912,33 @@ def calendar_stats():
     return jsonify({"year": year, "month": month, "days": days})
 
 
+def _streak_from_daily_minutes(daily_minutes, today_local):
+    """Cuenta días consecutivos con 60+ min de estudio hacia atrás desde
+    hoy, a partir de un dict {date: minutos}. Si hoy todavía no llega a
+    60 min no se rompe la racha -el día no ha terminado-, se sigue
+    contando desde ayer hacia atrás."""
+    cursor = today_local
+    if daily_minutes.get(cursor, 0) < 60:
+        cursor -= timedelta(days=1)
+
+    streak = 0
+    while daily_minutes.get(cursor, 0) >= 60:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    return streak
+
+
+def _streak_window(offset):
+    """Devuelve (today_local, window_start_utc) para calcular rachas.
+    Ventana amplia (400 días) para no dejar fuera rachas largas, sin
+    traer toda la tabla de sesiones de usuarios con mucho historial."""
+    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
+    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
+    window_start_utc = window_start_local + timedelta(minutes=offset)
+    return today_local, window_start_utc
+
+
 @app.route('/streak_info')
 def streak_info():
     """Racha de días consecutivos con 60+ min de estudio, en la hora local
@@ -922,12 +965,7 @@ def streak_info():
         target = viewer
 
     offset = get_tz_offset()
-    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
-
-    # Ventana amplia (400 días) para no dejar fuera rachas largas, sin traer
-    # toda la tabla de sesiones de usuarios con mucho historial.
-    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
-    window_start_utc = window_start_local + timedelta(minutes=offset)
+    today_local, window_start_utc = _streak_window(offset)
 
     daily_minutes = defaultdict(int)
     sessions = StudySession.query.filter(
@@ -938,14 +976,7 @@ def streak_info():
         local_dt = s.completed_at - timedelta(minutes=offset)
         daily_minutes[local_dt.date()] += s.minutes
 
-    cursor = today_local
-    if daily_minutes.get(cursor, 0) < 60:
-        cursor -= timedelta(days=1)
-
-    streak = 0
-    while daily_minutes.get(cursor, 0) >= 60:
-        streak += 1
-        cursor -= timedelta(days=1)
+    streak = _streak_from_daily_minutes(daily_minutes, today_local)
 
     return jsonify({"streak": streak})
 
@@ -981,6 +1012,51 @@ def search_users():
         for u in users
     ]
     return jsonify({"results": results})
+
+
+@app.route('/leaderboard')
+def leaderboard():
+    """Top de usuarios según sus pomotates (1 pomotate = 1 hora de estudio
+    acumulada). Para entrar a la lista hace falta al menos 1 pomotate."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    current_user = User.query.get(session['user_id'])
+    if current_user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    top_users = User.query.filter(User.points >= 60).order_by(User.points.desc()).limit(50).all()
+
+    # Racha de cada usuario del top, en la hora local de quien mira la
+    # página (ver get_tz_offset). Se trae en una sola consulta agrupada
+    # por usuario en vez de una consulta de racha por usuario.
+    offset = get_tz_offset()
+    today_local, window_start_utc = _streak_window(offset)
+
+    top_user_ids = [u.id for u in top_users]
+    daily_minutes_by_user = defaultdict(lambda: defaultdict(int))
+    if top_user_ids:
+        sessions = StudySession.query.filter(
+            StudySession.user_id.in_(top_user_ids),
+            StudySession.completed_at >= window_start_utc
+        ).all()
+        for s in sessions:
+            local_dt = s.completed_at - timedelta(minutes=offset)
+            daily_minutes_by_user[s.user_id][local_dt.date()] += s.minutes
+
+    return jsonify({
+        "leaderboard": [
+            {
+                "username": u.username,
+                "profile_pic": u.profile_pic,
+                "pomodoros": u.pomodoros,
+                "streak": _streak_from_daily_minutes(daily_minutes_by_user[u.id], today_local),
+                "is_you": u.id == current_user.id
+            }
+            for u in top_users
+        ]
+    })
 
 with app.app_context():
     db.create_all()
