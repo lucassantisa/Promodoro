@@ -63,6 +63,38 @@ SHOP_ITEMS = {
         'type': 'banner',
         'image_url': 'https://cdn.pixabay.com/animation/2026/05/09/09/34/09-34-48-912_256.gif'
     },
+    'banner_galaxia': {
+        'id': 'banner_galaxia',
+        'name': 'Banner Galaxia',
+        'description': 'Fondo animado de galaxia y estrellas para tu perfil.',
+        'price': 300,
+        'type': 'banner',
+        'image_url': '/static/uploads/galaxy.gif'
+    },
+    'banner_matrix': {
+        'id': 'banner_matrix',
+        'name': 'Banner Matrix',
+        'description': 'Fondo animado de Matrix para tu perfil.',
+        'price':500,
+        'type': 'banner',
+        'image_url': '/static/uploads/matrix.gif'
+    },
+    'banner_ponyo': {
+        'id': 'banner_ponyo',
+        'name': 'Banner Ponyo',
+        'description': 'Fondo animado de Studio Ghibli para tu perfil.',
+        'price':650,
+        'type': 'banner',
+        'image_url': '/static/uploads/ponyo.gif'
+    },
+    'banner_chihiro': {
+        'id': 'banner_chihiro',
+        'name': 'Banner Chihiro 8 bit',
+        'description': 'Fondo animado de Studio Ghibli para tu perfil.',
+        'price':1000,
+        'type': 'banner',
+        'image_url': '/static/uploads/chihiro8bit.gif'
+    },
     'font_orbitron': {
         'id': 'font_orbitron',
         'name': 'Tipografía Orbitron',
@@ -70,8 +102,46 @@ SHOP_ITEMS = {
         'price': 50,
         'type': 'font',
         'font_family': 'Orbitron'
+    },
+    'sound_lofi_nocturno': {
+        'id': 'sound_lofi_nocturno',
+        'name': 'Lofi Nocturno',
+        'description': 'Una pista lofi distinta a la de siempre, ideal para sesiones de estudio nocturnas.',
+        'price': 30,
+        'type': 'sound',
+        'category': 'lofi',
+        'audio_url': 'https://cdn.pixabay.com/audio/2023/07/30/audio_e0908e8569.mp3'
     }
 }
+
+# Categorías de canciones (coinciden con las 3 pistas del reproductor:
+# lofi/piano/rain), usadas solo para mostrar una etiqueta linda en la tienda.
+SOUND_CATEGORY_LABELS = {
+    'lofi': 'Lofi 🎧',
+    'piano': 'Música relajada 🎹',
+    'rain': 'Ambiente 🌧️'
+}
+
+# Pistas gratuitas de siempre (las que ya traía el reproductor). Si un
+# usuario no tiene ninguna canción comprada equipada en una categoría, esta
+# es la que suena.
+DEFAULT_TRACKS = {
+    'lofi': 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
+    'piano': 'https://cdn.pixabay.com/audio/2026/07/07/audio_e36696ae9b.mp3',
+    'rain': 'https://cdn.pixabay.com/audio/2022/05/11/audio_567640eb63.mp3'
+}
+
+
+def get_user_tracks(user):
+    """Arma las 3 pistas del reproductor de un usuario: la canción comprada y
+    equipada en cada categoría si tiene una, o si no la gratuita de siempre."""
+    tracks = dict(DEFAULT_TRACKS)
+    for category in DEFAULT_TRACKS:
+        equipped_id = getattr(user, f'equipped_sound_{category}', None)
+        item = SHOP_ITEMS.get(equipped_id)
+        if item and item['type'] == 'sound' and item['category'] == category:
+            tracks[category] = item['audio_url']
+    return tracks
 
 # Fuentes desbloqueables: id del objeto de la tienda -> clase CSS que la aplica
 # en el temporizador. Se usa para no tener que tocar el HTML cada vez que se
@@ -163,6 +233,12 @@ class User(db.Model):
     balance = db.Column(db.Integer, default=0)  # Puntos gastables en la tienda (no baja el total/rango)
     equipped_banner = db.Column(db.String(50), nullable=True)  # id del banner activo en el perfil
     equipped_font = db.Column(db.String(50), nullable=True)  # id de la tipografía activa en el temporizador
+    # Canción comprada equipada en cada categoría del reproductor (una por
+    # categoría). None = se usa la pista gratuita de siempre para esa
+    # categoría (ver DEFAULT_TRACKS / get_user_tracks).
+    equipped_sound_lofi = db.Column(db.String(50), nullable=True)
+    equipped_sound_piano = db.Column(db.String(50), nullable=True)
+    equipped_sound_rain = db.Column(db.String(50), nullable=True)
 
     # --- Relaciones de seguidores (sistema tipo red social) ---
     following = db.relationship(
@@ -286,7 +362,8 @@ def index():
 
     rank = get_rank_info(user.pomodoros)
     timer_font_class = FONT_CSS_CLASSES.get(user.equipped_font, '')
-    return render_template('index.html', user=user, rank=rank, ranks=RANKS, timer_font_class=timer_font_class)
+    tracks = get_user_tracks(user)
+    return render_template('index.html', user=user, rank=rank, ranks=RANKS, timer_font_class=timer_font_class, tracks=tracks)
 
 def render_profile_page(viewer, profile_user, error=None):
     """Arma el contexto compartido por /profile y /profile/<username>."""
@@ -583,8 +660,16 @@ def shop():
 
     owned_ids = {p.item_id for p in user.purchases.all()}
     items = list(SHOP_ITEMS.values())
+    equipped_sounds = {
+        'lofi': user.equipped_sound_lofi,
+        'piano': user.equipped_sound_piano,
+        'rain': user.equipped_sound_rain
+    }
 
-    return render_template('shop.html', user=user, items=items, owned_ids=owned_ids)
+    return render_template(
+        'shop.html', user=user, items=items, owned_ids=owned_ids,
+        equipped_sounds=equipped_sounds, sound_labels=SOUND_CATEGORY_LABELS
+    )
 
 
 @app.route('/shop/buy/<item_id>', methods=['POST'])
@@ -614,11 +699,16 @@ def buy_item(item_id):
     # equipado de ese tipo, se lo equipa automáticamente como cortesía (para
     # que la primera compra se note altiro). Si ya tenía uno puesto, se
     # respeta su elección: puede cambiarlo cuando quiera con el botón
-    # "Equipar" del objeto que ya compró.
+    # "Equipar" del objeto que ya compró. Con las canciones pasa lo mismo,
+    # pero por categoría (lofi/piano/rain) en vez de un solo slot global.
     if item['type'] == 'banner' and user.equipped_banner is None:
         user.equipped_banner = item_id
     elif item['type'] == 'font' and user.equipped_font is None:
         user.equipped_font = item_id
+    elif item['type'] == 'sound':
+        field = f"equipped_sound_{item['category']}"
+        if getattr(user, field, None) is None:
+            setattr(user, field, item_id)
 
     db.session.commit()
 
@@ -626,7 +716,12 @@ def buy_item(item_id):
         "success": True,
         "new_balance": user.balance,
         "equipped_banner": user.equipped_banner,
-        "equipped_font": user.equipped_font
+        "equipped_font": user.equipped_font,
+        "equipped_sounds": {
+            "lofi": user.equipped_sound_lofi,
+            "piano": user.equipped_sound_piano,
+            "rain": user.equipped_sound_rain
+        }
     })
 
 
@@ -644,7 +739,7 @@ def equip_item(item_id):
     if item is None:
         return jsonify({"error": "Objeto no encontrado"}), 404
 
-    if item['type'] not in ('banner', 'font'):
+    if item['type'] not in ('banner', 'font', 'sound'):
         return jsonify({"error": "Este objeto no se puede equipar"}), 400
 
     if not user.owns_item(item_id):
@@ -652,14 +747,21 @@ def equip_item(item_id):
 
     if item['type'] == 'banner':
         user.equipped_banner = item_id
-    else:
+    elif item['type'] == 'font':
         user.equipped_font = item_id
+    else:
+        setattr(user, f"equipped_sound_{item['category']}", item_id)
     db.session.commit()
 
     return jsonify({
         "success": True,
         "equipped_banner": user.equipped_banner,
-        "equipped_font": user.equipped_font
+        "equipped_font": user.equipped_font,
+        "equipped_sounds": {
+            "lofi": user.equipped_sound_lofi,
+            "piano": user.equipped_sound_piano,
+            "rain": user.equipped_sound_rain
+        }
     })
 
 
@@ -693,6 +795,27 @@ def unequip_font():
     db.session.commit()
 
     return jsonify({"success": True, "equipped_font": None})
+
+
+@app.route('/shop/unequip_sound/<category>', methods=['POST'])
+def unequip_sound(category):
+    """Quita la canción comprada equipada en una categoría (lofi/piano/rain)
+    y vuelve a la pista gratuita de siempre para esa categoría."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    if category not in DEFAULT_TRACKS:
+        return jsonify({"error": "Categoría inválida"}), 400
+
+    setattr(user, f'equipped_sound_{category}', None)
+    db.session.commit()
+
+    return jsonify({"success": True, "category": category})
 
 
 @app.route('/exam_dates', methods=['GET'])
@@ -897,46 +1020,39 @@ def calendar_stats():
     start_utc = start_local + timedelta(minutes=offset)
     end_utc = end_local + timedelta(minutes=offset)
 
-    days = defaultdict(lambda: {"blocks": 0, "minutes": 0})
+    days = defaultdict(lambda: {"blocks": 0, "minutes": 0, "by_folder": defaultdict(int)})
     sessions = StudySession.query.filter(
         StudySession.user_id == user.id,
         StudySession.completed_at >= start_utc,
         StudySession.completed_at < end_utc
     ).all()
+
+    folder_ids = {s.folder_id for s in sessions if s.folder_id is not None}
+    folder_names = {
+        f.id: f.name for f in Folder.query.filter(Folder.id.in_(folder_ids)).all()
+    } if folder_ids else {}
+
     for s in sessions:
         local_dt = s.completed_at - timedelta(minutes=offset)
         key = local_dt.date().isoformat()
         days[key]["blocks"] += 1
         days[key]["minutes"] += s.minutes
+        folder_name = folder_names.get(s.folder_id, "Sin carpeta")
+        days[key]["by_folder"][folder_name] += s.minutes
 
-    return jsonify({"year": year, "month": month, "days": days})
+    # Se aplana el desglose por carpeta a una lista (ordenada de mayor a
+    # menor tiempo) para que el frontend no tenga que lidiar con dicts
+    # anidados al armar las píldoras "MAT = 2h".
+    days_out = {}
+    for key, info in days.items():
+        by_folder = sorted(
+            ({"name": name, "minutes": minutes} for name, minutes in info["by_folder"].items()),
+            key=lambda f: f["minutes"],
+            reverse=True
+        )
+        days_out[key] = {"blocks": info["blocks"], "minutes": info["minutes"], "by_folder": by_folder}
 
-
-def _streak_from_daily_minutes(daily_minutes, today_local):
-    """Cuenta días consecutivos con 60+ min de estudio hacia atrás desde
-    hoy, a partir de un dict {date: minutos}. Si hoy todavía no llega a
-    60 min no se rompe la racha -el día no ha terminado-, se sigue
-    contando desde ayer hacia atrás."""
-    cursor = today_local
-    if daily_minutes.get(cursor, 0) < 60:
-        cursor -= timedelta(days=1)
-
-    streak = 0
-    while daily_minutes.get(cursor, 0) >= 60:
-        streak += 1
-        cursor -= timedelta(days=1)
-
-    return streak
-
-
-def _streak_window(offset):
-    """Devuelve (today_local, window_start_utc) para calcular rachas.
-    Ventana amplia (400 días) para no dejar fuera rachas largas, sin
-    traer toda la tabla de sesiones de usuarios con mucho historial."""
-    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
-    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
-    window_start_utc = window_start_local + timedelta(minutes=offset)
-    return today_local, window_start_utc
+    return jsonify({"year": year, "month": month, "days": days_out})
 
 
 @app.route('/streak_info')
@@ -965,7 +1081,12 @@ def streak_info():
         target = viewer
 
     offset = get_tz_offset()
-    today_local, window_start_utc = _streak_window(offset)
+    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
+
+    # Ventana amplia (400 días) para no dejar fuera rachas largas, sin traer
+    # toda la tabla de sesiones de usuarios con mucho historial.
+    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
+    window_start_utc = window_start_local + timedelta(minutes=offset)
 
     daily_minutes = defaultdict(int)
     sessions = StudySession.query.filter(
@@ -976,7 +1097,14 @@ def streak_info():
         local_dt = s.completed_at - timedelta(minutes=offset)
         daily_minutes[local_dt.date()] += s.minutes
 
-    streak = _streak_from_daily_minutes(daily_minutes, today_local)
+    cursor = today_local
+    if daily_minutes.get(cursor, 0) < 60:
+        cursor -= timedelta(days=1)
+
+    streak = 0
+    while daily_minutes.get(cursor, 0) >= 60:
+        streak += 1
+        cursor -= timedelta(days=1)
 
     return jsonify({"streak": streak})
 
@@ -1028,30 +1156,12 @@ def leaderboard():
 
     top_users = User.query.filter(User.points >= 60).order_by(User.points.desc()).limit(50).all()
 
-    # Racha de cada usuario del top, en la hora local de quien mira la
-    # página (ver get_tz_offset). Se trae en una sola consulta agrupada
-    # por usuario en vez de una consulta de racha por usuario.
-    offset = get_tz_offset()
-    today_local, window_start_utc = _streak_window(offset)
-
-    top_user_ids = [u.id for u in top_users]
-    daily_minutes_by_user = defaultdict(lambda: defaultdict(int))
-    if top_user_ids:
-        sessions = StudySession.query.filter(
-            StudySession.user_id.in_(top_user_ids),
-            StudySession.completed_at >= window_start_utc
-        ).all()
-        for s in sessions:
-            local_dt = s.completed_at - timedelta(minutes=offset)
-            daily_minutes_by_user[s.user_id][local_dt.date()] += s.minutes
-
     return jsonify({
         "leaderboard": [
             {
                 "username": u.username,
                 "profile_pic": u.profile_pic,
                 "pomodoros": u.pomodoros,
-                "streak": _streak_from_daily_minutes(daily_minutes_by_user[u.id], today_local),
                 "is_you": u.id == current_user.id
             }
             for u in top_users
@@ -1083,6 +1193,11 @@ with app.app_context():
         if 'equipped_font' not in existing_columns:
             db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_font VARCHAR(50)'))
             db.session.commit()
+
+        for sound_column in ('equipped_sound_lofi', 'equipped_sound_piano', 'equipped_sound_rain'):
+            if sound_column not in existing_columns:
+                db.session.execute(db.text(f'ALTER TABLE user ADD COLUMN {sound_column} VARCHAR(50)'))
+                db.session.commit()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

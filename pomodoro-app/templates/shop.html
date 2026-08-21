@@ -128,6 +128,27 @@
             letter-spacing: 3px;
         }
 
+        .sound-preview {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(15, 23, 42, 0.5));
+            padding: 12px;
+        }
+        .sound-preview .sound-icon { font-size: 2.2rem; }
+        .sound-preview audio { width: 100%; height: 32px; }
+        .category-badge {
+            align-self: flex-start;
+            background: rgba(139, 92, 246, 0.18);
+            color: #c4b5fd;
+            border-radius: 20px;
+            padding: 2px 10px;
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+
         .item-name { font-weight: 700; font-size: 1rem; }
         .item-desc { color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; flex-grow: 1; }
         .item-price { color: #eab308; font-weight: 600; font-size: 0.9rem; }
@@ -211,6 +232,15 @@
                 {% if user.equipped_font %}
                 <button class="unequip-link" id="unequip-font-btn" onclick="unequipFont()">Quitar tipografía actual</button>
                 {% endif %}
+                {% if equipped_sounds.lofi %}
+                <button class="unequip-link" id="unequip-sound-lofi-btn" onclick="unequipSound('lofi')">Quitar Lofi actual</button>
+                {% endif %}
+                {% if equipped_sounds.piano %}
+                <button class="unequip-link" id="unequip-sound-piano-btn" onclick="unequipSound('piano')">Quitar música relajada actual</button>
+                {% endif %}
+                {% if equipped_sounds.rain %}
+                <button class="unequip-link" id="unequip-sound-rain-btn" onclick="unequipSound('rain')">Quitar ambiente actual</button>
+                {% endif %}
             </div>
         </div>
 
@@ -220,6 +250,12 @@
             <div class="item-card">
                 {% if item.type == 'font' %}
                 <div class="item-preview font-preview" style="font-family: '{{ item.font_family }}', monospace;">25:00</div>
+                {% elif item.type == 'sound' %}
+                <div class="item-preview sound-preview">
+                    <span class="category-badge">{{ sound_labels.get(item.category, item.category) }}</span>
+                    <span class="sound-icon">🎵</span>
+                    <audio controls preload="none" src="{{ item.audio_url }}"></audio>
+                </div>
                 {% else %}
                 <div class="item-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}" loading="lazy" decoding="async"></div>
                 {% endif %}
@@ -240,13 +276,19 @@
                         {% else %}
                             <button class="buy-btn equip font-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)">Equipar</button>
                         {% endif %}
+                    {% elif item.type == 'sound' %}
+                        {% if equipped_sounds.get(item.category) == item.id %}
+                            <button class="buy-btn owned sound-toggle-btn" data-item-id="{{ item.id }}" data-category="{{ item.category }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
+                        {% else %}
+                            <button class="buy-btn equip sound-toggle-btn" data-item-id="{{ item.id }}" data-category="{{ item.category }}" onclick="equipItem(this)">Equipar</button>
+                        {% endif %}
                     {% else %}
                         <button class="buy-btn owned" disabled>✅ Ya lo tienes</button>
                     {% endif %}
                 {% elif user.balance < item.price %}
                     <button class="buy-btn locked" disabled>Te faltan {{ item.price - user.balance }} pts</button>
                 {% else %}
-                    <button class="buy-btn" data-item-id="{{ item.id }}" data-item-type="{{ item.type }}" onclick="buyItem(this)">Comprar</button>
+                    <button class="buy-btn" data-item-id="{{ item.id }}" data-item-type="{{ item.type }}" data-category="{{ item.category or '' }}" onclick="buyItem(this)">Comprar</button>
                 {% endif %}
             </div>
             {% endfor %}
@@ -262,7 +304,8 @@
         function buyItem(btn) {
             const itemId = btn.dataset.itemId;
             const itemType = btn.dataset.itemType;
-            const isEquippable = itemType === 'banner' || itemType === 'font';
+            const category = btn.dataset.category;
+            const isEquippable = itemType === 'banner' || itemType === 'font' || itemType === 'sound';
             btn.disabled = true;
             const originalText = btn.textContent;
             btn.textContent = 'Comprando...';
@@ -290,9 +333,10 @@
                     if (isEquippable) {
                         // Pasa a formar parte del mismo grupo de botones
                         // "Equipar / Equipado" que los demás objetos del
-                        // mismo tipo que ya tenías, para poder cambiarlo
+                        // mismo tipo (y, en el caso de canciones, de la misma
+                        // categoría) que ya tenías, para poder cambiarlo
                         // más adelante.
-                        const toggleClass = itemType === 'banner' ? 'banner-toggle-btn' : 'font-toggle-btn';
+                        const toggleClass = itemType === 'banner' ? 'banner-toggle-btn' : itemType === 'font' ? 'font-toggle-btn' : 'sound-toggle-btn';
                         btn.classList.remove('locked');
                         btn.classList.add(toggleClass);
                         btn.onclick = () => equipItem(btn);
@@ -300,9 +344,12 @@
                         if (itemType === 'banner') {
                             refreshBannerButtons(data.equipped_banner);
                             maybeShowUnequipLink('banner', data.equipped_banner);
-                        } else {
+                        } else if (itemType === 'font') {
                             refreshFontButtons(data.equipped_font);
                             maybeShowUnequipLink('font', data.equipped_font);
+                        } else {
+                            refreshSoundButtons(category, data.equipped_sounds[category]);
+                            maybeShowSoundUnequipLink(category, data.equipped_sounds[category]);
                         }
                     } else {
                         btn.textContent = '✅ Ya lo tienes';
@@ -320,6 +367,8 @@
         function equipItem(btn) {
             const itemId = btn.dataset.itemId;
             const isFont = btn.classList.contains('font-toggle-btn');
+            const isSound = btn.classList.contains('sound-toggle-btn');
+            const category = btn.dataset.category;
             btn.disabled = true;
             const originalText = btn.textContent;
             btn.textContent = 'Equipando...';
@@ -342,7 +391,10 @@
                         return;
                     }
 
-                    if (isFont) {
+                    if (isSound) {
+                        refreshSoundButtons(category, data.equipped_sounds[category]);
+                        maybeShowSoundUnequipLink(category, data.equipped_sounds[category]);
+                    } else if (isFont) {
                         refreshFontButtons(data.equipped_font);
                         maybeShowUnequipLink('font', data.equipped_font);
                     } else {
@@ -401,6 +453,30 @@
                 .catch(err => console.error('Error al quitar la tipografía:', err));
         }
 
+        const SOUND_LABELS = { lofi: 'Lofi', piano: 'música relajada', rain: 'ambiente' };
+
+        function unequipSound(category) {
+            const link = document.getElementById(`unequip-sound-${category}-btn`);
+            fetch(`/shop/unequip_sound/${encodeURIComponent(category)}`, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo quitar la canción.');
+                        return;
+                    }
+                    refreshSoundButtons(category, null);
+                    if (link) link.remove();
+                })
+                .catch(err => console.error('Error al quitar la canción:', err));
+        }
+
         // Deja un solo banner marcado como "✅ Equipado" (el que llegó en
         // equippedId) y a todos los demás que ya tenías comprados como
         // "Equipar", clicables para cambiar en cualquier momento.
@@ -426,6 +502,19 @@
             });
         }
 
+        // Igual que las anteriores, pero solo entre las canciones de la
+        // MISMA categoría (lofi/piano/rain), ya que cada categoría tiene su
+        // propia canción equipada de forma independiente.
+        function refreshSoundButtons(category, equippedId) {
+            document.querySelectorAll(`.sound-toggle-btn[data-category="${category}"]`).forEach(b => {
+                const isThisOne = b.dataset.itemId === equippedId;
+                b.disabled = isThisOne;
+                b.textContent = isThisOne ? '✅ Equipado' : 'Equipar';
+                b.classList.toggle('owned', isThisOne);
+                b.classList.toggle('equip', !isThisOne);
+            });
+        }
+
         function maybeShowUnequipLink(kind, equippedId) {
             const linkId = kind === 'banner' ? 'unequip-banner-btn' : 'unequip-font-btn';
             if (equippedId && !document.getElementById(linkId)) {
@@ -434,6 +523,18 @@
                 btn.id = linkId;
                 btn.textContent = kind === 'banner' ? 'Quitar banner actual' : 'Quitar tipografía actual';
                 btn.onclick = kind === 'banner' ? unequipBanner : unequipFont;
+                document.querySelector('.header-right').appendChild(btn);
+            }
+        }
+
+        function maybeShowSoundUnequipLink(category, equippedId) {
+            const linkId = `unequip-sound-${category}-btn`;
+            if (equippedId && !document.getElementById(linkId)) {
+                const btn = document.createElement('button');
+                btn.className = 'unequip-link';
+                btn.id = linkId;
+                btn.textContent = `Quitar ${SOUND_LABELS[category] || category} actual`;
+                btn.onclick = () => unequipSound(category);
                 document.querySelector('.header-right').appendChild(btn);
             }
         }

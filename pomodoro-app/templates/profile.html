@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ profile_user.username }} - Perfil - Promodoro</title>
+    <script>
+        // Se aplica antes de pintar la página para que no haya un parpadeo
+        // de modo oscuro justo antes de mostrar el modo claro guardado.
+        (function () {
+            if (localStorage.getItem('theme') === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +29,25 @@
             --accent: #8b5cf6;
             --accent-glow: rgba(139, 92, 246, 0.4);
             --border-color: rgba(255, 255, 255, 0.1);
+            --overlay-rgb: 255, 255, 255;
         }
+
+        /* Modo normal (claro): mismo diseño, con más blanco en vez de oscuro.
+           La elección se hace en el temporizador y queda guardada en el
+           navegador, así que esta página también la respeta. */
+        [data-theme="light"] {
+            --bg-base: #eef0f7;
+            --bg-panel: rgba(255, 255, 255, 0.8);
+            --text-main: #1e2436;
+            --text-muted: #5b6472;
+            --accent: #7c3aed;
+            --accent-glow: rgba(124, 58, 237, 0.25);
+            --border-color: rgba(15, 23, 42, 0.1);
+            --overlay-rgb: 15, 23, 42;
+        }
+        [data-theme="light"] .ambient-light { opacity: 0.22; }
+        [data-theme="light"] .profile-card { box-shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.15); }
+        [data-theme="light"] .error-msg { color: #b91c1c; }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -80,9 +107,10 @@
             top: -40px;
             left: -40px;
             right: -40px;
-            height: 190px;
+            height: 200px;
             width: calc(100% + 80px);
             object-fit: cover;
+            object-position: center 25%;
             z-index: 0;
             -webkit-mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
             mask-image: linear-gradient(to bottom, black 78%, transparent 100%);
@@ -222,7 +250,7 @@
             font-family: 'Poppins', sans-serif;
             transition: background 0.2s ease;
         }
-        .stat-box:not(.static):hover { background: rgba(255, 255, 255, 0.05); }
+        .stat-box:not(.static):hover { background: rgba(var(--overlay-rgb), 0.05); }
         .stat-box strong { font-size: 1.3rem; }
         .stat-box span { font-size: 0.8rem; color: var(--text-muted); }
 
@@ -274,7 +302,7 @@
             gap: 12px;
             padding: 10px;
             border-radius: 10px;
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(var(--overlay-rgb), 0.03);
             border: 1px solid var(--border-color);
         }
         .person-link {
@@ -295,7 +323,7 @@
             flex-shrink: 0;
         }
         .person-name { font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-        .person-points { color: #a78bfa; font-size: 0.8rem; white-space: nowrap; margin-left: auto; margin-right: 8px; }
+        .person-points { color: var(--accent); font-size: 0.8rem; white-space: nowrap; margin-left: auto; margin-right: 8px; }
 
         .empty-hint { color: var(--text-muted); text-align: center; padding: 24px 0; font-size: 0.9rem; }
 
@@ -344,6 +372,25 @@
             font-size: 0.9rem;
         }
         .back-link:hover { color: var(--text-main); }
+
+        .bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+        .theme-toggle-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            margin-top: 26px;
+            border-radius: 50%;
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+        .theme-toggle-btn:hover { color: var(--text-main); background: rgba(var(--overlay-rgb), 0.1); }
 
         @media (max-width: 480px) {
             .profile-card { padding: 28px 20px; }
@@ -489,7 +536,10 @@
         </div>
         {% endif %}
 
-        <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Volver al Promodoro</a>
+        <div class="bottom-row">
+            <a href="/" class="back-link" style="margin-top: 0;"><i class="fas fa-arrow-left"></i> Volver al Promodoro</a>
+            <button class="theme-toggle-btn" id="theme-toggle-btn" title="Cambiar a modo normal"><i class="fas fa-sun"></i></button>
+        </div>
     </div>
 
     <script>
@@ -642,6 +692,29 @@
                 }, 300);
             });
         }
+
+        // --- Modo claro / oscuro ---
+        const themeToggleBtn = document.getElementById('theme-toggle-btn');
+        const themeToggleIcon = themeToggleBtn.querySelector('i');
+
+        function applyThemeButtonState() {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            themeToggleIcon.className = isLight ? 'fas fa-moon' : 'fas fa-sun';
+            themeToggleBtn.title = isLight ? 'Cambiar a modo oscuro' : 'Cambiar a modo normal';
+        }
+        applyThemeButtonState();
+
+        themeToggleBtn.addEventListener('click', () => {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            if (isLight) {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+                localStorage.setItem('theme', 'light');
+            }
+            applyThemeButtonState();
+        });
     </script>
 </body>
 </html>
