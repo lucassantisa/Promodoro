@@ -19,6 +19,7 @@
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@17.0.3/dist/twemoji.min.js" crossorigin="anonymous" defer></script>
 
     <style>
         :root {
@@ -211,6 +212,7 @@
             transform: skewX(-20deg);
         }
         .rank-icon { font-size: 1.5rem; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35)); flex-shrink: 0; }
+        .rank-icon img.emoji { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
         .rank-info { display: flex; flex-direction: column; line-height: 1.25; text-align: left; }
         .rank-name { font-weight: 700; font-size: 0.95rem; }
         .rank-material { font-size: 0.72rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.6px; }
@@ -715,6 +717,17 @@
             }
             applyThemeButtonState();
         });
+
+        // El ícono de rango viene renderizado desde el servidor (Jinja), así
+        // que hay que aplicarle Twemoji aparte una vez que la librería (que
+        // carga con "defer") ya esté lista, para que se vea igual en
+        // cualquier computador (algunos emoji nuevos como 🪨 y 🪵 no existen
+        // en la fuente de sistemas desactualizados).
+        function applyTwemoji(el) {
+            if (window.twemoji && el) twemoji.parse(el, { folder: 'svg', ext: '.svg' });
+        }
+        document.addEventListener('DOMContentLoaded', () => applyTwemoji(document.querySelector('.rank-icon')));
+        if (document.readyState !== 'loading') applyTwemoji(document.querySelector('.rank-icon'));
     </script>
 </body>
 </html>

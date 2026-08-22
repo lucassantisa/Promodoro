@@ -99,7 +99,7 @@ SHOP_ITEMS = {
         'id': 'font_orbitron',
         'name': 'Tipografía Orbitron',
         'description': 'Una tipografía futurista y geométrica para los números de tu temporizador.',
-        'price': 50,
+        'price': 30,
         'type': 'font',
         'font_family': 'Orbitron'
     },
@@ -107,10 +107,37 @@ SHOP_ITEMS = {
         'id': 'sound_lofi_nocturno',
         'name': 'Lofi Nocturno',
         'description': 'Una pista lofi distinta a la de siempre, ideal para sesiones de estudio nocturnas.',
-        'price': 30,
+        'price': 15,
         'type': 'sound',
         'category': 'lofi',
         'audio_url': 'https://cdn.pixabay.com/audio/2023/07/30/audio_e0908e8569.mp3'
+    },
+    'sound_undertale_relax': {
+        'id': 'sound_undertale_relax',
+        'name': 'Undertale hogareño',
+        'description': 'Un mix de canciones relajantes de undertale con una fogata de fondo.',
+        'price': 60,
+        'type': 'sound',
+        'category': 'piano',
+        'audio_url': 'https://files.catbox.moe/y7k2fr.mp3'
+    },
+    'sound_ghibli_relax': {
+        'id': 'sound_ghibli_relax',
+        'name': 'Ghibli Mix',
+        'description': 'Un mix de canciones de Studio Ghibli en piano.',
+        'price': 60,
+        'type': 'sound',
+        'category': 'piano',
+        'audio_url': 'https://files.catbox.moe/1bcaij.mp3'
+    },
+    'sound_cp': {
+        'id': 'sound_cp',
+        'name': 'Pizza Parlor Theme',
+        'description': 'La cancion que sonaba cuando visitabas la pizzeria de Club Penguin.',
+        'price': 30,
+        'type': 'sound',
+        'category': 'piano',
+        'audio_url': 'https://files.catbox.moe/s899is.mp3'
     }
 }
 
@@ -901,6 +928,43 @@ def _months_back(base, n):
     return y, m + 1
 
 
+def compute_streaks_for_users(user_ids, offset):
+    """Calcula la racha de días consecutivos (60+ min de estudio) para varios
+    usuarios a la vez, con UNA sola consulta a la base de datos en vez de
+    una por usuario (se usa en el top de usuarios, que puede mostrar hasta
+    50 a la vez). Misma lógica que streak_info(), pero en lote."""
+    if not user_ids:
+        return {}
+
+    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
+    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
+    window_start_utc = window_start_local + timedelta(minutes=offset)
+
+    sessions = StudySession.query.filter(
+        StudySession.user_id.in_(user_ids),
+        StudySession.completed_at >= window_start_utc
+    ).all()
+
+    daily_minutes_by_user = defaultdict(lambda: defaultdict(int))
+    for s in sessions:
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        daily_minutes_by_user[s.user_id][local_dt.date()] += s.minutes
+
+    streaks = {}
+    for uid in user_ids:
+        daily_minutes = daily_minutes_by_user.get(uid, {})
+        cursor = today_local
+        if daily_minutes.get(cursor, 0) < 60:
+            cursor -= timedelta(days=1)
+        streak = 0
+        while daily_minutes.get(cursor, 0) >= 60:
+            streak += 1
+            cursor -= timedelta(days=1)
+        streaks[uid] = streak
+
+    return streaks
+
+
 def get_tz_offset():
     """Minutos de diferencia entre UTC y la hora local del navegador,
     tal cual los entrega JS con Date.getTimezoneOffset() (ej. Chile
@@ -1081,30 +1145,7 @@ def streak_info():
         target = viewer
 
     offset = get_tz_offset()
-    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
-
-    # Ventana amplia (400 días) para no dejar fuera rachas largas, sin traer
-    # toda la tabla de sesiones de usuarios con mucho historial.
-    window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
-    window_start_utc = window_start_local + timedelta(minutes=offset)
-
-    daily_minutes = defaultdict(int)
-    sessions = StudySession.query.filter(
-        StudySession.user_id == target.id,
-        StudySession.completed_at >= window_start_utc
-    ).all()
-    for s in sessions:
-        local_dt = s.completed_at - timedelta(minutes=offset)
-        daily_minutes[local_dt.date()] += s.minutes
-
-    cursor = today_local
-    if daily_minutes.get(cursor, 0) < 60:
-        cursor -= timedelta(days=1)
-
-    streak = 0
-    while daily_minutes.get(cursor, 0) >= 60:
-        streak += 1
-        cursor -= timedelta(days=1)
+    streak = compute_streaks_for_users([target.id], offset)[target.id]
 
     return jsonify({"streak": streak})
 
@@ -1156,12 +1197,16 @@ def leaderboard():
 
     top_users = User.query.filter(User.points >= 60).order_by(User.points.desc()).limit(50).all()
 
+    offset = get_tz_offset()
+    streaks = compute_streaks_for_users([u.id for u in top_users], offset)
+
     return jsonify({
         "leaderboard": [
             {
                 "username": u.username,
                 "profile_pic": u.profile_pic,
                 "pomodoros": u.pomodoros,
+                "streak": streaks.get(u.id, 0),
                 "is_you": u.id == current_user.id
             }
             for u in top_users

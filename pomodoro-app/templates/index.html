@@ -20,6 +20,11 @@
     <link rel="preconnect" href="https://cdn.pixabay.com">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Space+Mono:wght@400;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Twemoji: convierte los emoji del rango en imágenes reales en vez de
+         depender de la fuente de emojis instalada en cada computador. Algunos
+         emoji nuevos (como 🪨 y 🪵) no existen en la fuente de sistemas
+         desactualizados y aparecen como un cuadrado vacío sin esto. -->
+    <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@17.0.3/dist/twemoji.min.js" crossorigin="anonymous" defer></script>
 
     <!-- Precarga piano y lluvia en segundo plano para que no demoren al elegirlas -->
     <link rel="preload" as="audio" href="{{ tracks.piano }}">
@@ -220,6 +225,9 @@
             filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
             flex-shrink: 0;
         }
+        /* Twemoji reemplaza el emoji por un <img>; sin esto se ve gigante
+           (tamaño nativo del archivo) en vez de del alto del texto. */
+        .rank-icon img.emoji { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
         .rank-info { display: flex; flex-direction: column; line-height: 1.25; }
         .rank-name { font-weight: 700; font-size: 0.95rem; }
         .rank-material { font-size: 0.72rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.6px; }
@@ -833,6 +841,15 @@
         }
         .leaderboard-username { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
         .leaderboard-pomodoros { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+        .leaderboard-streak {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+            flex-shrink: 0;
+            min-width: 34px;
+            text-align: right;
+        }
 
         .stats-block-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
         .stats-block-title { font-size: 0.85rem; color: var(--text-muted); font-weight: 600; }
@@ -1407,6 +1424,12 @@
             return RANKS[RANKS.length - 1];
         }
 
+        function applyTwemoji(el) {
+            // Si por algún motivo la librería no cargó (ej. red bloqueada),
+            // se deja el emoji nativo como respaldo en vez de romper la página.
+            if (window.twemoji) twemoji.parse(el, { folder: 'svg', ext: '.svg' });
+        }
+
         function updateRankBadge(pomodoros) {
             const info = getRankInfo(pomodoros);
             const wasCollapsed = rankBadge.classList.contains('collapsed');
@@ -1414,6 +1437,7 @@
             rankBadge.querySelector('.rank-icon').textContent = info.icon;
             rankBadge.querySelector('.rank-name').textContent = info.name;
             rankBadge.querySelector('.rank-material').textContent = info.material;
+            applyTwemoji(rankBadge.querySelector('.rank-icon'));
         }
 
         // Formatea minutos como tiempo legible ("1h 13m", "45m", "2h") para
@@ -2040,7 +2064,7 @@
             if (!leaderboardList) return;
             leaderboardList.innerHTML = '<p class="stats-empty">Cargando...</p>';
 
-            fetch('/leaderboard')
+            fetch(`/leaderboard?tz_offset=${new Date().getTimezoneOffset()}`)
                 .then(response => {
                     if (response.status === 401) {
                         window.location.href = '/login';
@@ -2074,6 +2098,7 @@
                         <span class="leaderboard-username">${escapeHtml(u.username)}${u.is_you ? ' (tú)' : ''}</span>
                     </a>
                     <span class="leaderboard-pomodoros">${u.pomodoros} 🍅</span>
+                    <span class="leaderboard-streak" title="Racha actual (no se usa para ordenar el top)">${u.streak > 0 ? `🔥 ${u.streak}` : '—'}</span>
                 </div>
             `).join('');
         }
@@ -2326,6 +2351,12 @@
         loadFolders();
         loadExamDates();
         restoreTimerState();
+
+        // El ícono de rango inicial viene renderizado desde el servidor (Jinja),
+        // así que hay que aplicarle Twemoji aparte una vez que la librería
+        // (que carga con "defer") ya esté lista.
+        document.addEventListener('DOMContentLoaded', () => applyTwemoji(document.querySelector('.rank-icon')));
+        if (document.readyState !== 'loading') applyTwemoji(document.querySelector('.rank-icon'));
     </script>
 </body>
 </html>
