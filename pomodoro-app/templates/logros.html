@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logros - Promodoro</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Twemoji: convierte los emoji en imágenes reales en vez de depender de
+         la fuente de emojis instalada en cada computador. Algunos emoji
+         (como 🪨 y 🪵) no existen en la fuente de sistemas desactualizados y
+         aparecen como un cuadrado vacío sin esto. -->
+    <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@17.0.3/dist/twemoji.min.js" crossorigin="anonymous" defer></script>
+
+    <style>
+        :root {
+            --bg-base: #0b0f19;
+            --bg-panel: rgba(26, 32, 53, 0.6);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #8b5cf6;
+            --accent-glow: rgba(139, 92, 246, 0.4);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            position: relative;
+            padding: 40px 16px;
+            overflow-x: hidden;
+        }
+
+        .ambient-light {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(100px);
+            z-index: 0;
+            opacity: 0.5;
+            animation: float 10s infinite alternate ease-in-out;
+        }
+        .light-1 { width: 400px; height: 400px; background: #4c1d95; top: -100px; left: -100px; }
+        .light-2 { width: 300px; height: 300px; background: #0f766e; bottom: -50px; right: -50px; animation-delay: -5s; }
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(30px, 50px) scale(1.1); }
+        }
+
+        @media (hover: none) and (pointer: coarse), (prefers-reduced-motion: reduce) {
+            .ambient-light { animation: none; }
+        }
+
+        .logros-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 680px;
+            z-index: 10;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .logros-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 26px;
+        }
+        .logros-header h2 { font-size: 1.4rem; font-weight: 600; }
+
+        .balance-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+
+        .logros-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 18px;
+        }
+
+        .achievement-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .achievement-card.is-claimed { border-color: rgba(34, 197, 94, 0.4); }
+        .achievement-card.is-locked { opacity: 0.75; }
+
+        .achievement-icon {
+            width: 100%;
+            height: 90px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.6rem;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(15, 23, 42, 0.5));
+        }
+        /* Twemoji reemplaza el emoji por un <img>; sin esto se ve gigante
+           (tamaño nativo del archivo) en vez de del alto del ícono. */
+        .achievement-icon img.emoji { width: 2.6rem; height: 2.6rem; }
+        .achievement-card.is-locked .achievement-icon { filter: grayscale(1); opacity: 0.6; }
+
+        .achievement-name { font-weight: 700; font-size: 1rem; }
+        .achievement-desc { color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; flex-grow: 1; }
+        .achievement-points { color: #eab308; font-weight: 600; font-size: 0.9rem; }
+
+        .claim-btn {
+            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Poppins', sans-serif;
+        }
+        .claim-btn:hover:not(:disabled) { box-shadow: 0 8px 18px var(--accent-glow); transform: translateY(-1px); }
+        .claim-btn:disabled { cursor: not-allowed; }
+        .claim-btn.claimed {
+            background: transparent;
+            border: 1px solid #22c55e;
+            color: #4ade80;
+        }
+        .claim-btn.locked {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+        }
+
+        .empty-hint { color: var(--text-muted); text-align: center; padding: 30px 0; }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 28px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .back-link:hover { color: var(--text-main); }
+
+        @media (max-width: 480px) {
+            .logros-card { padding: 28px 20px; }
+            .logros-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-light light-1"></div>
+    <div class="ambient-light light-2"></div>
+
+    <div class="logros-card">
+        <div class="logros-header">
+            <h2>Logros 🏆</h2>
+            <div class="balance-pill">💰 <span id="balance-amount">{{ user.balance }}</span> pts disponibles</div>
+        </div>
+
+        {% if achievements %}
+        <div class="logros-grid">
+            {% for ach in achievements %}
+            <div class="achievement-card {{ 'is-claimed' if ach.claimed else ('is-locked' if not ach.unlocked else '') }}" id="achievement-card-{{ ach.id }}">
+                <div class="achievement-icon">{{ ach.icon }}</div>
+                <div class="achievement-name">{{ ach.name }}</div>
+                <div class="achievement-desc">{{ ach.description }}</div>
+                <div class="achievement-points">{{ ach.points }} pts</div>
+
+                {% if ach.claimed %}
+                    <button class="claim-btn claimed" disabled>✅ Canjeado</button>
+                {% elif ach.unlocked %}
+                    <button class="claim-btn" data-achievement-id="{{ ach.id }}" onclick="claimAchievement(this)">Canjear</button>
+                {% else %}
+                    <button class="claim-btn locked" disabled>🔒 Bloqueado</button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty-hint">Todavía no hay logros disponibles.</p>
+        {% endif %}
+
+        <a href="/profile" class="back-link"><i class="fas fa-arrow-left"></i> Volver al perfil</a>
+    </div>
+
+    <script>
+        function applyTwemoji(el) {
+            // Si por algún motivo la librería no cargó (ej. red bloqueada),
+            // se deja el emoji nativo como respaldo en vez de romper la página.
+            if (window.twemoji) twemoji.parse(el, { folder: 'svg', ext: '.svg' });
+        }
+
+        function applyAchievementTwemoji() {
+            document.querySelectorAll('.achievement-icon').forEach(applyTwemoji);
+        }
+
+        // twemoji.min.js carga con "defer", así que puede que todavía no esté
+        // listo cuando este script corre (se ejecuta durante el parseo, antes
+        // de que terminen los scripts diferidos). Por eso nos suscribimos a
+        // DOMContentLoaded (que sí ocurre después) y, además, lo intentamos
+        // de inmediato por si el documento ya terminó de cargar.
+        document.addEventListener('DOMContentLoaded', applyAchievementTwemoji);
+        if (document.readyState !== 'loading') applyAchievementTwemoji();
+
+        function claimAchievement(btn) {
+            const achievementId = btn.dataset.achievementId;
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Canjeando...';
+
+            fetch(`/logros/canjear/${encodeURIComponent(achievementId)}`, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo canjear el logro.');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        return;
+                    }
+
+                    document.getElementById('balance-amount').textContent = data.new_balance;
+                    btn.classList.remove('locked');
+                    btn.classList.add('claimed');
+                    btn.textContent = '✅ Canjeado';
+
+                    const card = document.getElementById(`achievement-card-${achievementId}`);
+                    if (card) {
+                        card.classList.remove('is-locked');
+                        card.classList.add('is-claimed');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error al canjear el logro:', err);
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                });
+        }
+    </script>
+</body>
+</html>

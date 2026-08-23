@@ -225,8 +225,11 @@
             filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
             flex-shrink: 0;
         }
-        /* Twemoji reemplaza el emoji por un <img>; sin esto se ve gigante
-           (tamaño nativo del archivo) en vez de del alto del texto. */
+        /* Twemoji reemplaza CUALQUIER emoji de la página por un <img>; sin esto
+           se ve gigante (tamaño nativo del archivo SVG) en vez de ajustarse al
+           alto del texto que lo rodea. Esta regla general cubre todos los
+           casos (leaderboard, medallas, etc.); el rango usa una más grande. */
+        img.emoji { width: 1em; height: 1em; vertical-align: -0.15em; }
         .rank-icon img.emoji { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
         .rank-info { display: flex; flex-direction: column; line-height: 1.25; }
         .rank-name { font-weight: 700; font-size: 0.95rem; }
@@ -814,6 +817,7 @@
             border: 1px solid var(--border-color);
         }
         .leaderboard-row.is-you { border-color: var(--accent); background: rgba(139, 92, 246, 0.1); }
+        .leaderboard-row.is-champion { border-color: rgba(234, 179, 8, 0.5); background: rgba(234, 179, 8, 0.08); }
         .leaderboard-position {
             width: 26px;
             flex-shrink: 0;
@@ -831,6 +835,16 @@
             text-decoration: none;
             color: var(--text-main);
         }
+        .leaderboard-avatar-wrap { position: relative; flex-shrink: 0; line-height: 0; }
+        .leaderboard-crown {
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%) rotate(-8deg);
+            font-size: 1.1rem;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+            pointer-events: none;
+        }
         .leaderboard-avatar {
             width: 36px;
             height: 36px;
@@ -839,6 +853,7 @@
             border: 2px solid var(--accent);
             flex-shrink: 0;
         }
+        .leaderboard-row.is-champion .leaderboard-avatar { border-color: #eab308; }
         .leaderboard-username { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
         .leaderboard-pomodoros { color: var(--accent); font-size: 0.85rem; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
         .leaderboard-streak {
@@ -1036,6 +1051,7 @@
                     <a href="#" id="search-btn" title="Buscar usuarios"><i class="fas fa-search"></i></a>
                     <a href="#" id="stats-btn" title="Estadísticas de productividad"><i class="fas fa-chart-simple"></i></a>
                     <a href="/shop" title="Tienda de puntos"><i class="fas fa-store"></i></a>
+                    <a href="/logros" title="Logros"><i class="fas fa-trophy"></i></a>
                     <a href="/profile" title="Perfil"><i class="fas fa-user-gear"></i></a>
                     <a href="/logout" class="logout" title="Cerrar Sesión"><i class="fas fa-sign-out-alt"></i></a>
                 </div>
@@ -2091,16 +2107,20 @@
 
             const medals = ['🥇', '🥈', '🥉'];
             leaderboardList.innerHTML = list.map((u, i) => `
-                <div class="leaderboard-row ${u.is_you ? 'is-you' : ''}">
+                <div class="leaderboard-row ${u.is_you ? 'is-you' : ''} ${i === 0 ? 'is-champion' : ''}">
                     <span class="leaderboard-position">${medals[i] || (i + 1)}</span>
                     <a href="${u.is_you ? '/profile' : '/profile/' + encodeURIComponent(u.username)}" class="leaderboard-link">
-                        <img src="${escapeHtml(u.profile_pic)}" class="leaderboard-avatar" alt="Avatar">
+                        <span class="leaderboard-avatar-wrap">
+                            ${i === 0 ? '<span class="leaderboard-crown">👑</span>' : ''}
+                            <img src="${escapeHtml(u.profile_pic)}" class="leaderboard-avatar" alt="Avatar">
+                        </span>
                         <span class="leaderboard-username">${escapeHtml(u.username)}${u.is_you ? ' (tú)' : ''}</span>
                     </a>
                     <span class="leaderboard-pomodoros">${u.pomodoros} 🍅</span>
                     <span class="leaderboard-streak" title="Racha actual (no se usa para ordenar el top)">${u.streak > 0 ? `🔥 ${u.streak}` : '—'}</span>
                 </div>
             `).join('');
+            applyTwemoji(leaderboardList);
         }
 
         // --- Calendario de estudio (círculos por día) ---

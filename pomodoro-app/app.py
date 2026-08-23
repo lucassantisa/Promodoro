@@ -43,6 +43,151 @@ def get_rank_info(pomodoros):
             return rank
     return RANKS[-1]
 
+# --- Logros ---
+# Catálogo de logros canjeables por puntos. Cada logro se puede canjear una
+# sola vez por usuario (se controla con el modelo AchievementClaim, que tiene
+# una restricción única de user_id + achievement_id). 'check' recibe al
+_PIEDRA_MIN_POMODOROS = next(r['min'] for r in RANKS if r['key'] == 'piedra')
+
+
+def _weekly_minutes_map(user, offset):
+    """Minutos estudiados por semana calendario (lunes a domingo, hora local
+    del usuario), a partir de TODO su historial de sesiones. La llave de
+    cada semana es la fecha de su lunes. Se usa para logros basados en
+    semanas (ej. 'estudia 10 horas en una semana')."""
+    sessions = StudySession.query.filter(StudySession.user_id == user.id).all()
+    weekly_minutes = defaultdict(int)
+    for s in sessions:
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        week_start = (local_dt - timedelta(days=local_dt.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        weekly_minutes[week_start] += s.minutes
+    return weekly_minutes
+
+
+def _has_10h_week(user):
+    offset = get_tz_offset()
+    weekly_minutes = _weekly_minutes_map(user, offset)
+    return any(minutes >= 600 for minutes in weekly_minutes.values())
+
+
+def _has_zero_hour_week(user):
+    """Se cumple si hubo una semana calendario completa y ya terminada en la
+    que el usuario estudió 0 minutos. Solo cuenta a partir de la semana
+    siguiente a su primera sesión registrada, para que una cuenta recién
+    creada (que nunca ha estudiado) no la cumpla gratis con solo entrar."""
+    offset = get_tz_offset()
+    weekly_minutes = _weekly_minutes_map(user, offset)
+    if not weekly_minutes:
+        return False
+
+    now_local = datetime.utcnow() - timedelta(minutes=offset)
+    this_week_start = (now_local - timedelta(days=now_local.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    cursor = min(weekly_minutes.keys()) + timedelta(weeks=1)
+    while cursor < this_week_start:
+        if weekly_minutes.get(cursor, 0) == 0:
+            return True
+        cursor += timedelta(weeks=1)
+    return False
+
+
+def _has_5h_in_a_folder(user):
+    top_folder = user.folders.order_by(Folder.points.desc()).first()
+    return top_folder is not None and top_folder.points >= 300
+
+
+# A partir de esta fecha (UTC) el bug de zona horaria que afectaba al logro
+# 'Búho nocturno' ya está corregido. Las sesiones de estudio de antes de
+# esta fecha no cuentan para ese logro (ver _has_madrugada_block).
+MADRUGADA_FIX_CUTOFF = datetime(2026, 8, 22, 12, 0, 0)
+
+
+def _has_madrugada_block(user):
+    """True si algún bloque de estudio de 1 hora o más terminó entre las
+    00:00 y las 06:00, hora local del usuario.
+
+    Solo cuentan sesiones completadas después de MADRUGADA_FIX_CUTOFF: antes
+    de esa fecha hubo un bug de zona horaria que en algunos casos marcaba
+    sesiones de tarde/noche como si fueran de madrugada. Las sesiones
+    anteriores a la corrección quedan afuera a propósito, para que el logro
+    solo se pueda ganar de verdad de ahora en adelante."""
+    offset = get_tz_offset()
+    sessions = StudySession.query.filter(
+        StudySession.user_id == user.id,
+        StudySession.completed_at >= MADRUGADA_FIX_CUTOFF,
+        StudySession.minutes >= 60
+    ).all()
+    for s in sessions:
+        local_dt = s.completed_at - timedelta(minutes=offset)
+        if 0 <= local_dt.hour < 6:
+            return True
+    return False
+
+
+def _has_7_day_streak(user):
+    offset = get_tz_offset()
+    return compute_streaks_for_users([user.id], offset)[user.id] >= 7
+
+
+ACHIEVEMENTS = [
+    {
+        'id': 'rango_piedra',
+        'name': 'Rango de Piedra',
+        'description': f'Alcanza el rango de Piedra ({_PIEDRA_MIN_POMODOROS} pomotates acumulados).',
+        'points': 50,
+        'icon': '🪨',
+        'check': lambda user: user.pomodoros >= _PIEDRA_MIN_POMODOROS,
+    },
+    {
+        'id': 'semana_10_horas',
+        'name': 'Maratón semanal',
+        'description': 'Estudia 10 horas o más dentro de una misma semana.',
+        'points': 100,
+        'icon': '📚',
+        'check': _has_10h_week,
+    },
+    {
+        'id': 'compra_dos_objetos',
+        'name': 'Comprador frecuente',
+        'description': 'Compra dos objetos distintos en la tienda.',
+        'points': 30,
+        'icon': '🛍️',
+        'check': lambda user: user.purchases.count() >= 2,
+    },
+    {
+        'id': 'carpeta_5_horas',
+        'name': 'Especialista',
+        'description': 'Alcanza 5 horas acumuladas en una carpeta específica.',
+        'points': 50,
+        'icon': '🎯',
+        'check': _has_5h_in_a_folder,
+    },
+    {
+        'id': 'semana_0_horas',
+        'name': 'Semana de descanso',
+        'description': 'Ten una semana completa sin registrar estudio.',
+        'points': 20,
+        'icon': '🌴',
+        'check': _has_zero_hour_week,
+    },
+    {
+        'id': 'bloque_madrugada',
+        'name': 'Búho nocturno',
+        'description': 'Termina un bloque de estudio de 1 hora o más entre las 12:00 y las 6:00 am.',
+        'points': 300,
+        'icon': '🌙',
+        'check': _has_madrugada_block,
+    },
+    {
+        'id': 'racha_7_dias',
+        'name': 'Constancia de hierro',
+        'description': 'Logra una racha de 7 días seguidos estudiando.',
+        'points': 100,
+        'icon': '🔥',
+        'check': _has_7_day_streak,
+    },
+]
+
 # --- Tienda de puntos ---
 # Catálogo de objetos comprables. Por ahora solo hay un banner animado,
 # pero está pensado para poder agregar más objetos (y tipos) más adelante.
@@ -251,6 +396,20 @@ class Purchase(db.Model):
     )
 
 
+class AchievementClaim(db.Model):
+    """Logro que un usuario ya canjeó por sus puntos. La restricción única
+    de abajo es lo que garantiza que un mismo logro no se pueda canjear
+    dos veces para el mismo usuario."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    achievement_id = db.Column(db.String(50), nullable=False)
+    claimed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'achievement_id', name='uix_user_achievement_claim'),
+    )
+
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
@@ -299,6 +458,14 @@ class User(db.Model):
         cascade='all, delete-orphan'
     )
 
+    # --- Logros ya canjeados ---
+    achievement_claims = db.relationship(
+        'AchievementClaim',
+        backref='user',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+
     @property
     def pomodoros(self):
         """Cantidad de pomodoros ganados. 1 pomodoro = 1 hora completa de
@@ -310,6 +477,9 @@ class User(db.Model):
 
     def owns_item(self, item_id):
         return self.purchases.filter_by(item_id=item_id).first() is not None
+
+    def has_claimed_achievement(self, achievement_id):
+        return self.achievement_claims.filter_by(achievement_id=achievement_id).first() is not None
 
     def is_following(self, other_user):
         if other_user is None:
@@ -845,6 +1015,68 @@ def unequip_sound(category):
     return jsonify({"success": True, "category": category})
 
 
+@app.route('/logros')
+def logros():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return redirect(url_for('login'))
+
+    claimed_ids = {c.achievement_id for c in user.achievement_claims.all()}
+    # Se arma la lista con el estado de cada logro ya resuelto (desbloqueado
+    # y/o canjeado) para que la plantilla no tenga que llamar funciones.
+    achievements = [
+        {
+            'id': ach['id'],
+            'name': ach['name'],
+            'description': ach['description'],
+            'points': ach['points'],
+            'icon': ach['icon'],
+            'unlocked': ach['check'](user),
+            'claimed': ach['id'] in claimed_ids
+        }
+        for ach in ACHIEVEMENTS
+    ]
+
+    return render_template('logros.html', user=user, achievements=achievements)
+
+
+@app.route('/logros/canjear/<achievement_id>', methods=['POST'])
+def canjear_logro(achievement_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    achievement = next((a for a in ACHIEVEMENTS if a['id'] == achievement_id), None)
+    if achievement is None:
+        return jsonify({"error": "Logro no encontrado"}), 404
+
+    if user.has_claimed_achievement(achievement_id):
+        return jsonify({"error": "Ya canjeaste este logro"}), 400
+
+    if not achievement['check'](user):
+        return jsonify({"error": "Todavía no cumples los requisitos de este logro"}), 403
+
+    # Solo se acreditan al saldo gastable de la tienda, igual que los puntos
+    # ganados estudiando (ver /add_points); el total/rango no se ve afectado.
+    user.balance += achievement['points']
+    db.session.add(AchievementClaim(user_id=user.id, achievement_id=achievement_id))
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "new_balance": user.balance,
+        "points_awarded": achievement['points']
+    })
+
+
 @app.route('/exam_dates', methods=['GET'])
 def get_exam_dates():
     if 'user_id' not in session:
@@ -1243,6 +1475,25 @@ with app.app_context():
             if sound_column not in existing_columns:
                 db.session.execute(db.text(f'ALTER TABLE user ADD COLUMN {sound_column} VARCHAR(50)'))
                 db.session.commit()
+
+    # --- Reset único del logro 'Búho nocturno' (bloque_madrugada) ---
+    # Por el bug de zona horaria ya corregido, algunos usuarios pudieron
+    # haber canjeado este logro sin merecerlo de verdad. Se revierte
+    # cualquier canje ya hecho (devolviendo el saldo otorgado) y se borra el
+    # registro del canje, para que el logro quede disponible de nuevo y solo
+    # se pueda ganar con sesiones de estudio reales a partir de ahora. Esto
+    # es seguro de ejecutar en cada arranque: después de la primera vez ya
+    # no queda ningún canje viejo que revertir, así que no vuelve a pasar
+    # nada.
+    old_madrugada_claims = AchievementClaim.query.filter_by(achievement_id='bloque_madrugada').all()
+    if old_madrugada_claims:
+        madrugada_points = next(a['points'] for a in ACHIEVEMENTS if a['id'] == 'bloque_madrugada')
+        for claim in old_madrugada_claims:
+            claim_user = User.query.get(claim.user_id)
+            if claim_user is not None:
+                claim_user.balance = max(0, claim_user.balance - madrugada_points)
+            db.session.delete(claim)
+        db.session.commit()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
