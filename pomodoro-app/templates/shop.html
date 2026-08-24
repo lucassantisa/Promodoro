@@ -4,6 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tienda - Promodoro</title>
+    <script>
+        // Se aplica antes de pintar la página para que no haya un parpadeo
+        // del modo/color por defecto justo antes de mostrar lo guardado.
+        (function () {
+            if (localStorage.getItem('theme') === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+            const savedAccent = localStorage.getItem('accentColor');
+            if (savedAccent) {
+                document.documentElement.setAttribute('data-accent', savedAccent);
+            }
+        })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='logo.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,11 +28,46 @@
         :root {
             --bg-base: #0b0f19;
             --bg-panel: rgba(26, 32, 53, 0.6);
+            --bg-panel-solid: #131a2b;
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --accent: #8b5cf6;
+            --accent-dark: #6d28d9;
             --accent-glow: rgba(139, 92, 246, 0.4);
             --border-color: rgba(255, 255, 255, 0.1);
+            --overlay-rgb: 255, 255, 255;
+        }
+
+        /* Modo normal (claro): mismo diseño, con más blanco en vez de oscuro.
+           Se activa agregando data-theme="light" en <html> (botón junto al
+           título, la elección queda guardada en el navegador). */
+        [data-theme="light"] {
+            --bg-base: #eef0f7;
+            --bg-panel: rgba(255, 255, 255, 0.8);
+            --bg-panel-solid: #ffffff;
+            --text-main: #1e2436;
+            --text-muted: #5b6472;
+            --accent: #7c3aed;
+            --accent-glow: rgba(124, 58, 237, 0.25);
+            --border-color: rgba(15, 23, 42, 0.1);
+            --overlay-rgb: 15, 23, 42;
+        }
+        [data-theme="light"] .ambient-light { opacity: 0.22; }
+        [data-theme="light"] .shop-card { box-shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.15); }
+        /* El fondo de la vista previa de tipografías queda siempre oscuro a
+           propósito (funciona como una "muestra"), así que su texto se deja
+           fijo en claro más abajo y no sigue el tema de la página. */
+
+        /* Color de acento alternativo: Azul marino. Se activa agregando
+           data-accent="marino" en <html> (elegido desde el panel de
+           colores). El resto del diseño no cambia, solo este color. */
+        [data-accent="marino"] {
+            --accent: #3b5bdb;
+            --accent-dark: #1e3a8a;
+            --accent-glow: rgba(59, 91, 219, 0.4);
+        }
+        [data-theme="light"][data-accent="marino"] {
+            --accent-glow: rgba(30, 58, 138, 0.22);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -76,14 +124,60 @@
             gap: 12px;
             flex-wrap: wrap;
             margin-bottom: 26px;
+            position: relative;
         }
         .shop-header h2 { font-size: 1.4rem; font-weight: 600; }
+
+        .header-icons { display: flex; gap: 12px; align-items: center; font-size: 0.95rem; }
+        .header-icons a { color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
+        .header-icons a:hover { color: var(--text-main); }
+
+        .color-picker-panel {
+            position: absolute;
+            top: 38px;
+            right: 0;
+            background: var(--bg-panel-solid);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.35);
+            z-index: 50;
+            min-width: 180px;
+        }
+        .color-picker-panel.hidden { display: none; }
+        .color-picker-title { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-bottom: 10px; }
+        .color-swatches { display: flex; flex-direction: column; gap: 8px; }
+        .color-swatch-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 10px;
+            color: var(--text-main);
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+        }
+        .color-swatch-btn:hover { background: rgba(var(--overlay-rgb), 0.05); }
+        .color-swatch-btn.active { border-color: var(--accent); }
+        .color-swatch {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3);
+        }
 
         .balance-pill {
             display: flex;
             align-items: center;
             gap: 8px;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
             border: 1px solid var(--border-color);
             padding: 8px 16px;
             border-radius: 20px;
@@ -99,7 +193,7 @@
         }
 
         .item-card {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(var(--overlay-rgb), 0.03);
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 16px;
@@ -124,7 +218,10 @@
             background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(15, 23, 42, 0.5));
             font-size: 1.9rem;
             font-weight: 900;
-            color: var(--text-main);
+            /* Fondo siempre oscuro a propósito (funciona como una "muestra"),
+               así que el texto se deja fijo en claro y no sigue el tema de
+               la página, o quedaría oscuro sobre oscuro en modo claro. */
+            color: #f8fafc;
             letter-spacing: 3px;
         }
 
@@ -154,7 +251,7 @@
         .item-price { color: #eab308; font-weight: 600; font-size: 0.9rem; }
 
         .buy-btn {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color: white;
             border: none;
             padding: 10px;
@@ -224,7 +321,24 @@
     <div class="shop-card">
         <div class="shop-header">
             <h2>Tienda de Puntos 🛍️</h2>
+            <div class="color-picker-panel hidden" id="color-picker-panel">
+                <div class="color-picker-title">Color de la app</div>
+                <div class="color-swatches">
+                    <button class="color-swatch-btn" data-accent="" title="Morado (predeterminado)">
+                        <span class="color-swatch" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);"></span>
+                        Morado
+                    </button>
+                    <button class="color-swatch-btn" data-accent="marino" title="Azul marino">
+                        <span class="color-swatch" style="background: linear-gradient(135deg, #3b5bdb, #1e3a8a);"></span>
+                        Azul marino
+                    </button>
+                </div>
+            </div>
             <div class="header-right">
+                <div class="header-icons">
+                    <a href="#" id="color-picker-btn" title="Elegir color"><i class="fas fa-palette"></i></a>
+                    <a href="#" id="theme-toggle-btn" title="Cambiar a modo normal"><i class="fas fa-sun"></i></a>
+                </div>
                 <div class="balance-pill">💰 <span id="balance-amount">{{ user.balance }}</span> pts disponibles</div>
                 {% if user.equipped_banner %}
                 <button class="unequip-link" id="unequip-banner-btn" onclick="unequipBanner()">Quitar banner actual</button>
@@ -538,6 +652,72 @@
                 document.querySelector('.header-right').appendChild(btn);
             }
         }
+
+        // --- Modo claro / oscuro ---
+        const themeToggleBtn = document.getElementById('theme-toggle-btn');
+        const themeToggleIcon = themeToggleBtn.querySelector('i');
+
+        function applyThemeButtonState() {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            themeToggleIcon.className = isLight ? 'fas fa-moon' : 'fas fa-sun';
+            themeToggleBtn.title = isLight ? 'Cambiar a modo oscuro' : 'Cambiar a modo normal';
+        }
+        applyThemeButtonState();
+
+        themeToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            if (isLight) {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+                localStorage.setItem('theme', 'light');
+            }
+            applyThemeButtonState();
+        });
+
+        // --- Color de acento (morado / azul marino) ---
+        const colorPickerBtn = document.getElementById('color-picker-btn');
+        const colorPickerPanel = document.getElementById('color-picker-panel');
+
+        function applyAccentButtonState() {
+            const current = document.documentElement.getAttribute('data-accent') || '';
+            document.querySelectorAll('.color-swatch-btn').forEach(btn => {
+                btn.classList.toggle('active', (btn.dataset.accent || '') === current);
+            });
+        }
+        applyAccentButtonState();
+
+        colorPickerBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            colorPickerPanel.classList.toggle('hidden');
+        });
+
+        document.querySelectorAll('.color-swatch-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const accent = btn.dataset.accent;
+                if (accent) {
+                    document.documentElement.setAttribute('data-accent', accent);
+                    localStorage.setItem('accentColor', accent);
+                } else {
+                    document.documentElement.removeAttribute('data-accent');
+                    localStorage.removeItem('accentColor');
+                }
+                applyAccentButtonState();
+                colorPickerPanel.classList.add('hidden');
+            });
+        });
+
+        // Cierra el panel de colores si se hace click afuera de él
+        document.addEventListener('click', (e) => {
+            if (!colorPickerPanel.classList.contains('hidden') &&
+                !colorPickerPanel.contains(e.target) &&
+                !colorPickerBtn.contains(e.target)) {
+                colorPickerPanel.classList.add('hidden');
+            }
+        });
     </script>
 </body>
 </html>

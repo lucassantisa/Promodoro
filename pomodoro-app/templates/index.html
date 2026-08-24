@@ -6,10 +6,14 @@
     <title>Promodoro</title>
     <script>
         // Se aplica antes de pintar la página para que no haya un parpadeo
-        // de modo oscuro justo antes de mostrar el modo claro guardado.
+        // del modo/color por defecto justo antes de mostrar lo guardado.
         (function () {
             if (localStorage.getItem('theme') === 'light') {
                 document.documentElement.setAttribute('data-theme', 'light');
+            }
+            const savedAccent = localStorage.getItem('accentColor');
+            if (savedAccent) {
+                document.documentElement.setAttribute('data-accent', savedAccent);
             }
         })();
     </script>
@@ -38,6 +42,7 @@
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --accent: #8b5cf6;
+            --accent-dark: #6d28d9;
             --accent-glow: rgba(139, 92, 246, 0.4);
             --border-color: rgba(255, 255, 255, 0.1);
             --overlay-rgb: 255, 255, 255;
@@ -65,6 +70,19 @@
         }
         [data-theme="light"] .ambient-light { opacity: 0.22; }
         [data-theme="light"] .app-container { box-shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.15); }
+
+        /* Color de acento alternativo: Azul marino. Se activa agregando
+           data-accent="marino" en <html> (elegido desde el panel de
+           colores). El resto del diseño no cambia, solo este color, que
+           reemplaza al morado en botones, bordes activos, brillos, etc. */
+        [data-accent="marino"] {
+            --accent: #3b5bdb;
+            --accent-dark: #1e3a8a;
+            --accent-glow: rgba(59, 91, 219, 0.4);
+        }
+        [data-theme="light"][data-accent="marino"] {
+            --accent-glow: rgba(30, 58, 138, 0.22);
+        }
         [data-theme="light"] .toast { background: rgba(255, 255, 255, 0.97); }
         [data-theme="light"] .search-modal,
         [data-theme="light"] .stats-modal { box-shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.18); }
@@ -161,6 +179,48 @@
             justify-content: space-between;
             align-items: center;
             gap: 14px;
+            position: relative;
+        }
+
+        .color-picker-panel {
+            position: absolute;
+            top: 38px;
+            right: 0;
+            background: var(--bg-panel-solid);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.35);
+            z-index: 50;
+            min-width: 180px;
+        }
+        .color-picker-panel.hidden { display: none; }
+        .color-picker-title { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-bottom: 10px; }
+        .color-swatches { display: flex; flex-direction: column; gap: 8px; }
+        .color-swatch-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 10px;
+            color: var(--text-main);
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+        }
+        .color-swatch-btn:hover { background: rgba(var(--overlay-rgb), 0.05); }
+        .color-swatch-btn.active { border-color: var(--accent); }
+        .color-swatch {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3);
         }
 
         .profile-section {
@@ -341,7 +401,7 @@
         }
         .track-btn:hover { color: var(--text-main); }
         .track-btn.active {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color: white;
             box-shadow: 0 0 10px var(--accent-glow);
         }
@@ -397,7 +457,7 @@
         }
         .folder-chip:hover { border-color: var(--accent); color: var(--text-main); }
         .folder-chip.active {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color: white;
             border-color: transparent;
             box-shadow: 0 0 12px var(--accent-glow);
@@ -588,7 +648,7 @@
         .action-buttons { display: flex; gap: 10px; width: 100%; }
 
         .action-btn {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color: white;
             border: none;
             padding: 14px 20px;
@@ -931,7 +991,7 @@
         .calendar-day.empty { visibility: hidden; }
         .calendar-day.today { border-color: var(--accent); }
         .calendar-day.studied {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color: #fff;
             font-weight: 700;
             cursor: pointer;
@@ -1004,7 +1064,7 @@
         .search-hint, .no-results { color: var(--text-muted); text-align: center; padding: 20px 0; font-size: 0.9rem; }
 
         .follow-btn {
-            background: linear-gradient(135deg, var(--accent), #6d28d9);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color: white;
             border: none;
             padding: 6px 16px;
@@ -1047,13 +1107,28 @@
                     </div>
                 </a>
                 <div class="nav-links">
+                    <a href="#" id="color-picker-btn" title="Elegir color"><i class="fas fa-palette"></i></a>
                     <a href="#" id="theme-toggle-btn" title="Cambiar a modo normal"><i class="fas fa-sun"></i></a>
                     <a href="#" id="search-btn" title="Buscar usuarios"><i class="fas fa-search"></i></a>
                     <a href="#" id="stats-btn" title="Estadísticas de productividad"><i class="fas fa-chart-simple"></i></a>
                     <a href="/shop" title="Tienda de puntos"><i class="fas fa-store"></i></a>
-                    <a href="/logros" title="Logros"><i class="fas fa-trophy"></i></a>
+                    <a href="/logros" title="Logros" onclick="event.preventDefault(); window.location.href = '/logros?tz_offset=' + new Date().getTimezoneOffset();"><i class="fas fa-trophy"></i></a>
                     <a href="/profile" title="Perfil"><i class="fas fa-user-gear"></i></a>
                     <a href="/logout" class="logout" title="Cerrar Sesión"><i class="fas fa-sign-out-alt"></i></a>
+                </div>
+
+                <div class="color-picker-panel hidden" id="color-picker-panel">
+                    <div class="color-picker-title">Color de la app</div>
+                    <div class="color-swatches">
+                        <button class="color-swatch-btn" data-accent="" title="Morado (predeterminado)">
+                            <span class="color-swatch" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);"></span>
+                            Morado
+                        </button>
+                        <button class="color-swatch-btn" data-accent="marino" title="Azul marino">
+                            <span class="color-swatch" style="background: linear-gradient(135deg, #3b5bdb, #1e3a8a);"></span>
+                            Azul marino
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -2249,6 +2324,48 @@
                 localStorage.setItem('theme', 'light');
             }
             applyThemeButtonState();
+        });
+
+        // --- Color de acento (morado / azul marino) ---
+        const colorPickerBtn = document.getElementById('color-picker-btn');
+        const colorPickerPanel = document.getElementById('color-picker-panel');
+
+        function applyAccentButtonState() {
+            const current = document.documentElement.getAttribute('data-accent') || '';
+            document.querySelectorAll('.color-swatch-btn').forEach(btn => {
+                btn.classList.toggle('active', (btn.dataset.accent || '') === current);
+            });
+        }
+        applyAccentButtonState();
+
+        colorPickerBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            colorPickerPanel.classList.toggle('hidden');
+        });
+
+        document.querySelectorAll('.color-swatch-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const accent = btn.dataset.accent;
+                if (accent) {
+                    document.documentElement.setAttribute('data-accent', accent);
+                    localStorage.setItem('accentColor', accent);
+                } else {
+                    document.documentElement.removeAttribute('data-accent');
+                    localStorage.removeItem('accentColor');
+                }
+                applyAccentButtonState();
+                colorPickerPanel.classList.add('hidden');
+            });
+        });
+
+        // Cierra el panel de colores si se hace click afuera de él
+        document.addEventListener('click', (e) => {
+            if (!colorPickerPanel.classList.contains('hidden') &&
+                !colorPickerPanel.contains(e.target) &&
+                !colorPickerBtn.contains(e.target)) {
+                colorPickerPanel.classList.add('hidden');
+            }
         });
 
         // --- Buscador de usuarios ---
