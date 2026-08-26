@@ -1,5 +1,8 @@
 import os
+import re
 import uuid
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 from collections import defaultdict
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
@@ -129,6 +132,11 @@ def _has_7_day_streak(user):
     return compute_streaks_for_users([user.id], offset)[user.id] >= 7
 
 
+def _has_30_day_streak(user):
+    offset = get_tz_offset()
+    return compute_streaks_for_users([user.id], offset)[user.id] >= 30
+
+
 ACHIEVEMENTS = [
     {
         'id': 'rango_piedra',
@@ -166,7 +174,7 @@ ACHIEVEMENTS = [
         'id': 'semana_0_horas',
         'name': 'Semana de descanso',
         'description': 'Ten una semana completa sin registrar estudio.',
-        'points': 20,
+        'points': 300,
         'icon': '🌴',
         'check': _has_zero_hour_week,
     },
@@ -185,6 +193,14 @@ ACHIEVEMENTS = [
         'points': 100,
         'icon': '🔥',
         'check': _has_7_day_streak,
+    },
+    {
+        'id': 'racha_30_dias',
+        'name': 'Constancia de diamante',
+        'description': 'Logra una racha de 30 días seguidos estudiando.',
+        'points': 300,
+        'icon': '💎',
+        'check': _has_30_day_streak,
     },
 ]
 
@@ -366,11 +382,16 @@ class Folder(db.Model):
 
 
 class ExamDate(db.Model):
-    """Fecha de prueba/examen que el usuario quiere tener presente."""
+    """Fecha de prueba/examen que el usuario quiere tener presente.
+    'source' distingue las agregadas a mano ('manual') de las importadas
+    automáticamente desde Google Calendar ('google_calendar'), para que la
+    sincronización solo reemplace estas últimas y nunca toque lo que el
+    usuario escribió él mismo (ver sync_user_calendar)."""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(100), nullable=False)
     exam_date = db.Column(db.Date, nullable=False)
+    source = db.Column(db.String(20), nullable=False, default='manual')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -425,6 +446,11 @@ class User(db.Model):
     equipped_sound_lofi = db.Column(db.String(50), nullable=True)
     equipped_sound_piano = db.Column(db.String(50), nullable=True)
     equipped_sound_rain = db.Column(db.String(50), nullable=True)
+    # Link secreto de iCal (ej. "Dirección secreta en formato iCal" de Google
+    # Calendar) desde donde se importan automáticamente las fechas de prueba.
+    # None = el usuario no ha conectado ningún calendario.
+    google_ical_url = db.Column(db.String(500), nullable=True)
+    ical_last_synced_at = db.Column(db.DateTime, nullable=True)
 
     # --- Relaciones de seguidores (sistema tipo red social) ---
     following = db.relationship(
@@ -1077,6 +1103,150 @@ def canjear_logro(achievement_id):
     })
 
 
+# --- Sincronización con Google Calendar (iCal) ---
+# El usuario pega el link de su "Dirección secreta en formato iCal" (en
+# Google Calendar: Configuración → su calendario → esa opción) UNA sola vez
+# y desde ahí la app puede leer su calendario sin necesitar login ni tokens
+# de OAuth. Cada sincronización REEMPLAZA por completo las fechas de prueba
+# con source='google_calendar' de ese usuario (las agregadas a mano con
+# source='manual' nunca se tocan), así el listado siempre queda igual a lo
+# que hay hoy en el calendario (altas, bajas y cambios de fecha incluidos).
+
+ICAL_SYNC_MIN_INTERVAL = timedelta(minutes=15)  # cada cuánto se auto-sincroniza sola, como máximo
+ICAL_SYNC_WINDOW_DAYS = 365  # no se importan eventos más allá de un año a futuro
+ICAL_MAX_EVENTS = 200  # tope de eventos futuros a importar por sincronización
+ICAL_FETCH_TIMEOUT = 8  # segundos de espera al descargar el feed
+
+
+def _unfold_ical_lines(text):
+    """Revierte el 'line folding' del formato iCal (RFC 5545): una línea que
+    empieza con un espacio o tab es la continuación de la anterior."""
+    raw_lines = text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    unfolded = []
+    for line in raw_lines:
+        if line.startswith((' ', '\t')) and unfolded:
+            unfolded[-1] += line[1:]
+        else:
+            unfolded.append(line)
+    return unfolded
+
+
+def _unescape_ical_text(value):
+    """Revierte el escapado de texto de iCal (\\, \\n, \\; y \\,)."""
+    return (
+        value.replace('\\n', ' ')
+             .replace('\\N', ' ')
+             .replace('\\,', ',')
+             .replace('\\;', ';')
+             .replace('\\\\', '\\')
+    )
+
+
+def _parse_ical_property(line):
+    """Separa 'NOMBRE;PARAM=VALOR:contenido' en (NOMBRE, contenido), sin los
+    parámetros (ej. TZID, VALUE=DATE), que acá no se necesitan."""
+    if ':' not in line:
+        return None, None
+    name_part, value = line.split(':', 1)
+    name = name_part.split(';', 1)[0].strip().upper()
+    return name, value.strip()
+
+
+def parse_ical_events(ics_text, today, horizon):
+    """Extrae de un feed iCal los eventos (VEVENT) con fecha entre 'today' y
+    'horizon', como una lista de {'title', 'date'} ordenada por fecha.
+    Solo lee SUMMARY y DTSTART; no expande eventos recurrentes (RRULE) -si
+    el usuario tiene un examen que se repite, solo se toma la fecha del
+    evento maestro."""
+    events = []
+    in_event = False
+    current = {}
+
+    for line in _unfold_ical_lines(ics_text):
+        stripped = line.strip()
+        if stripped == 'BEGIN:VEVENT':
+            in_event = True
+            current = {}
+            continue
+        if stripped == 'END:VEVENT':
+            if in_event and current.get('date') and current.get('title'):
+                if today <= current['date'] <= horizon:
+                    events.append(current)
+            in_event = False
+            continue
+        if not in_event:
+            continue
+
+        name, value = _parse_ical_property(line)
+        if name is None:
+            continue
+
+        if name == 'SUMMARY':
+            current['title'] = _unescape_ical_text(value)[:100] or 'Sin título'
+        elif name == 'DTSTART':
+            # Cubre tanto eventos de todo el día (DTSTART;VALUE=DATE:20260601)
+            # como eventos con hora (DTSTART:20260601T090000Z o con TZID);
+            # a la fecha de prueba solo le importa el día, no la hora exacta.
+            digits = re.match(r'(\d{8})', value)
+            if digits:
+                try:
+                    current['date'] = datetime.strptime(digits.group(1), '%Y%m%d').date()
+                except ValueError:
+                    pass
+
+    events.sort(key=lambda e: e['date'])
+    return events[:ICAL_MAX_EVENTS]
+
+
+def fetch_ical_text(url):
+    """Descarga el feed iCal de la URL secreta. Lanza ValueError con un
+    mensaje ya listo para mostrarle al usuario si algo sale mal."""
+    if not url or not url.lower().startswith('https://'):
+        raise ValueError('El link debe ser una URL https:// válida.')
+
+    req = urllib.request.Request(url, headers={'User-Agent': 'Promodoro/1.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=ICAL_FETCH_TIMEOUT) as response:
+            raw = response.read(5 * 1024 * 1024)  # tope de 5 MB por seguridad
+    except urllib.error.HTTPError as e:
+        raise ValueError(f'El calendario respondió con un error ({e.code}). Revisa que el link sea correcto.')
+    except urllib.error.URLError:
+        raise ValueError('No se pudo conectar a esa URL. Revisa el link e intenta de nuevo.')
+    except TimeoutError:
+        raise ValueError('El calendario tardó demasiado en responder. Intenta de nuevo más tarde.')
+
+    try:
+        return raw.decode('utf-8')
+    except UnicodeDecodeError:
+        return raw.decode('latin-1', errors='ignore')
+
+
+def sync_user_calendar(user):
+    """Descarga el calendario del usuario y reemplaza sus fechas de prueba
+    importadas (source='google_calendar') por lo que hay ahora mismo en el
+    feed. Devuelve la cantidad de eventos importados. Lanza ValueError si la
+    descarga falla (link roto, sin conexión, etc.)."""
+    ics_text = fetch_ical_text(user.google_ical_url)
+
+    offset = get_tz_offset()
+    today = (datetime.utcnow() - timedelta(minutes=offset)).date()
+    horizon = today + timedelta(days=ICAL_SYNC_WINDOW_DAYS)
+    events = parse_ical_events(ics_text, today, horizon)
+
+    ExamDate.query.filter_by(user_id=user.id, source='google_calendar').delete()
+    for ev in events:
+        db.session.add(ExamDate(
+            user_id=user.id,
+            title=ev['title'],
+            exam_date=ev['date'],
+            source='google_calendar'
+        ))
+
+    user.ical_last_synced_at = datetime.utcnow()
+    db.session.commit()
+    return len(events)
+
+
 @app.route('/exam_dates', methods=['GET'])
 def get_exam_dates():
     if 'user_id' not in session:
@@ -1087,12 +1257,32 @@ def get_exam_dates():
         session.clear()
         return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
 
+    # Si hay un calendario conectado, se auto-sincroniza (como máximo cada
+    # ICAL_SYNC_MIN_INTERVAL) para que la lista se mantenga al día sin que el
+    # usuario tenga que acordarse de apretar "Sincronizar ahora". Si la
+    # sincronización falla (ej. sin internet) no se rompe la página: se
+    # sigue mostrando lo último que había, con un aviso.
+    sync_error = None
+    if user.google_ical_url:
+        needs_sync = (
+            user.ical_last_synced_at is None or
+            datetime.utcnow() - user.ical_last_synced_at > ICAL_SYNC_MIN_INTERVAL
+        )
+        if needs_sync:
+            try:
+                sync_user_calendar(user)
+            except ValueError as e:
+                sync_error = str(e)
+
     exams = ExamDate.query.filter_by(user_id=user.id).order_by(ExamDate.exam_date.asc()).all()
     return jsonify({
         "exam_dates": [
-            {"id": e.id, "title": e.title, "date": e.exam_date.isoformat()}
+            {"id": e.id, "title": e.title, "date": e.exam_date.isoformat(), "source": e.source}
             for e in exams
-        ]
+        ],
+        "calendar_connected": bool(user.google_ical_url),
+        "calendar_last_synced_at": user.ical_last_synced_at.isoformat() if user.ical_last_synced_at else None,
+        "calendar_sync_error": sync_error
     })
 
 
@@ -1148,6 +1338,87 @@ def delete_exam_date(exam_id):
     db.session.commit()
 
     return jsonify({"success": True})
+
+
+@app.route('/calendar/connect', methods=['POST'])
+def connect_calendar():
+    """Guarda el link secreto de iCal del usuario y hace la primera
+    sincronización al toque."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    data = request.get_json() or {}
+    url = (data.get('url') or '').strip()
+
+    if not url:
+        return jsonify({"error": "Pega el link antes de conectar."}), 400
+    if len(url) > 500:
+        return jsonify({"error": "Ese link es demasiado largo."}), 400
+
+    user.google_ical_url = url
+    user.ical_last_synced_at = None
+    db.session.commit()
+
+    try:
+        count = sync_user_calendar(user)
+    except ValueError as e:
+        # El link igual queda guardado (puede ser un problema de red
+        # pasajero); se avisa que la primera sincronización falló para que
+        # el usuario pueda reintentar con "Sincronizar ahora".
+        return jsonify({"success": True, "connected": True, "sync_error": str(e)})
+
+    return jsonify({"success": True, "connected": True, "synced_count": count})
+
+
+@app.route('/calendar/disconnect', methods=['POST'])
+def disconnect_calendar():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    user.google_ical_url = None
+    user.ical_last_synced_at = None
+    # Se quitan las fechas importadas; las agregadas a mano quedan intactas.
+    ExamDate.query.filter_by(user_id=user.id, source='google_calendar').delete()
+    db.session.commit()
+
+    return jsonify({"success": True})
+
+
+@app.route('/calendar/sync', methods=['POST'])
+def sync_calendar_now():
+    """Botón 'Sincronizar ahora': fuerza una sincronización inmediata,
+    saltándose el intervalo mínimo del auto-sync de /exam_dates."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    if not user.google_ical_url:
+        return jsonify({"error": "Todavía no has conectado un calendario."}), 400
+
+    try:
+        count = sync_user_calendar(user)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 502
+
+    return jsonify({
+        "success": True,
+        "synced_count": count,
+        "synced_at": user.ical_last_synced_at.isoformat()
+    })
 
 
 MONTH_NAMES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -1475,6 +1746,20 @@ with app.app_context():
             if sound_column not in existing_columns:
                 db.session.execute(db.text(f'ALTER TABLE user ADD COLUMN {sound_column} VARCHAR(50)'))
                 db.session.commit()
+
+        if 'google_ical_url' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN google_ical_url VARCHAR(500)'))
+            db.session.commit()
+
+        if 'ical_last_synced_at' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN ical_last_synced_at DATETIME'))
+            db.session.commit()
+
+    if 'exam_date' in inspector.get_table_names():
+        existing_exam_columns = [col['name'] for col in inspector.get_columns('exam_date')]
+        if 'source' not in existing_exam_columns:
+            db.session.execute(db.text("ALTER TABLE exam_date ADD COLUMN source VARCHAR(20) DEFAULT 'manual'"))
+            db.session.commit()
 
     # --- Reset único del logro 'Búho nocturno' (bloque_madrugada) ---
     # Por el bug de zona horaria ya corregido, algunos usuarios pudieron

@@ -609,6 +609,112 @@
         #cancel-new-exam { color: #ef4444; }
         #confirm-new-exam:hover, #cancel-new-exam:hover { background: rgba(var(--overlay-rgb), 0.1); }
 
+        /* --- Sincronización con Google Calendar --- */
+        .calendar-sync-box { margin-bottom: 12px; }
+
+        .sync-link-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'Poppins', sans-serif;
+        }
+        .sync-link-btn:hover { text-decoration: underline; }
+        .sync-link-btn.hidden { display: none; }
+
+        .connect-form { margin-top: 10px; }
+        .connect-form.hidden { display: none; }
+        .connect-hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            line-height: 1.45;
+            margin-bottom: 8px;
+            background: rgba(var(--overlay-rgb), 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+        .connect-hint strong { color: var(--text-main); }
+
+        .connect-input-row { display: flex; gap: 6px; }
+        #ical-url-input {
+            flex: 1;
+            min-width: 0;
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.8rem;
+        }
+        #ical-url-input:focus { outline: none; border-color: var(--accent); }
+        #confirm-connect-btn, #cancel-connect-btn {
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid var(--border-color);
+            width: 36px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        #confirm-connect-btn { color: #4ade80; }
+        #cancel-connect-btn { color: #ef4444; }
+        #confirm-connect-btn:hover, #cancel-connect-btn:hover { background: rgba(var(--overlay-rgb), 0.1); }
+        #confirm-connect-btn:disabled { opacity: 0.6; cursor: default; }
+
+        .sync-connected.hidden { display: none; }
+        .sync-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .sync-status .sync-dot { font-size: 0.5rem; color: #4ade80; }
+        .sync-status.sync-error .sync-dot { color: #ef4444; }
+        .sync-status.sync-error #sync-status-label { color: #f87171; }
+
+        .sync-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .sync-now-btn {
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--accent);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'Poppins', sans-serif;
+            transition: all 0.2s ease;
+        }
+        .sync-now-btn:hover:not(:disabled) { background: rgba(139, 92, 246, 0.15); }
+        .sync-now-btn:disabled { opacity: 0.6; cursor: default; }
+        .sync-now-btn.syncing i { animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .sync-disconnect-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 0;
+            font-family: 'Poppins', sans-serif;
+        }
+        .sync-disconnect-btn:hover { color: #ef4444; }
+
         .content-area { display: flex; flex-direction: column; align-items: center; margin-bottom: 25px; width: 100%; }
 
         .main-display {
@@ -1216,6 +1322,39 @@
                     </div>
                 </div>
                 <div class="exam-body" id="exam-body">
+                    <div class="calendar-sync-box" id="calendar-sync-box">
+                        <!-- Estado: calendario no conectado -->
+                        <div class="sync-disconnected" id="sync-disconnected">
+                            <button class="sync-link-btn" id="show-connect-form-btn">
+                                <i class="fas fa-link"></i> Conectar con Google Calendar
+                            </button>
+                            <div class="connect-form hidden" id="connect-form">
+                                <p class="connect-hint">
+                                    En Google Calendar: <strong>Configuración</strong> → elige el calendario en la columna izquierda → <strong>Integrar calendario</strong> → copia la "Dirección secreta en formato iCal".
+                                </p>
+                                <div class="connect-input-row">
+                                    <input type="url" id="ical-url-input" placeholder="Pega aquí el link secreto..." autocomplete="off">
+                                    <button id="confirm-connect-btn" title="Conectar"><i class="fas fa-check"></i></button>
+                                    <button id="cancel-connect-btn" title="Cancelar"><i class="fas fa-times"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Estado: calendario conectado -->
+                        <div class="sync-connected hidden" id="sync-connected">
+                            <div class="sync-status" id="sync-status-box">
+                                <i class="fas fa-circle sync-dot"></i>
+                                <span id="sync-status-label">Conectado</span>
+                            </div>
+                            <div class="sync-actions">
+                                <button class="sync-now-btn" id="sync-now-btn" title="Sincronizar ahora">
+                                    <i class="fas fa-rotate"></i> Sincronizar ahora
+                                </button>
+                                <button class="sync-disconnect-btn" id="disconnect-calendar-btn">Desconectar</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="exam-list" id="exam-list"></div>
                     <div class="new-exam-input hidden" id="new-exam-input">
                         <input type="text" id="new-exam-title" placeholder="Ej: Examen de Cálculo" maxlength="100" autocomplete="off">
@@ -1693,7 +1832,7 @@
         });
 
         function loadExamDates() {
-            fetch('/exam_dates')
+            fetch(`/exam_dates?tz_offset=${new Date().getTimezoneOffset()}`)
                 .then(response => {
                     if (response.status === 401) {
                         window.location.href = '/login';
@@ -1705,6 +1844,7 @@
                     if (!data) return;
                     examDates = data.exam_dates;
                     renderExamDates();
+                    renderCalendarSyncState(data);
                 })
                 .catch(err => console.error('Error al cargar fechas de prueba:', err));
         }
@@ -1773,6 +1913,170 @@
             const id = parseInt(deleteIcon.dataset.examId, 10);
             deleteExamDate(id);
         });
+
+        // --- Sincronización con Google Calendar ---
+        const syncDisconnectedBox = document.getElementById('sync-disconnected');
+        const syncConnectedBox = document.getElementById('sync-connected');
+        const showConnectFormBtn = document.getElementById('show-connect-form-btn');
+        const connectForm = document.getElementById('connect-form');
+        const icalUrlInput = document.getElementById('ical-url-input');
+        const confirmConnectBtn = document.getElementById('confirm-connect-btn');
+        const cancelConnectBtn = document.getElementById('cancel-connect-btn');
+        const syncStatusBox = document.getElementById('sync-status-box');
+        const syncStatusLabel = document.getElementById('sync-status-label');
+        const syncNowBtn = document.getElementById('sync-now-btn');
+        const disconnectCalendarBtn = document.getElementById('disconnect-calendar-btn');
+
+        showConnectFormBtn.addEventListener('click', () => {
+            connectForm.classList.remove('hidden');
+            showConnectFormBtn.classList.add('hidden');
+            icalUrlInput.focus();
+        });
+
+        cancelConnectBtn.addEventListener('click', () => {
+            connectForm.classList.add('hidden');
+            showConnectFormBtn.classList.remove('hidden');
+            icalUrlInput.value = '';
+        });
+
+        confirmConnectBtn.addEventListener('click', () => {
+            const url = icalUrlInput.value.trim();
+            if (!url) {
+                showNotice('Pega el link antes de conectar.');
+                return;
+            }
+            confirmConnectBtn.disabled = true;
+
+            fetch(`/calendar/connect?tz_offset=${new Date().getTimezoneOffset()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    confirmConnectBtn.disabled = false;
+                    if (!data) return;
+
+                    if (!data.success) {
+                        showNotice(data.error || 'No se pudo conectar el calendario.');
+                        return;
+                    }
+
+                    icalUrlInput.value = '';
+                    connectForm.classList.add('hidden');
+                    showConnectFormBtn.classList.remove('hidden');
+
+                    if (data.sync_error) {
+                        showNotice('Calendario conectado, pero la primera sincronización falló: ' + data.sync_error);
+                    } else {
+                        const count = data.synced_count || 0;
+                        showNotice(`¡Calendario conectado! Se ${count === 1 ? 'importó 1 fecha' : `importaron ${count} fechas`}.`);
+                    }
+                    loadExamDates();
+                })
+                .catch(err => {
+                    confirmConnectBtn.disabled = false;
+                    console.error('Error al conectar el calendario:', err);
+                    showNotice('No se pudo conectar el calendario. Intenta de nuevo.');
+                });
+        });
+
+        syncNowBtn.addEventListener('click', () => {
+            syncNowBtn.disabled = true;
+            syncNowBtn.classList.add('syncing');
+
+            fetch(`/calendar/sync?tz_offset=${new Date().getTimezoneOffset()}`, { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    syncNowBtn.disabled = false;
+                    syncNowBtn.classList.remove('syncing');
+                    if (!data) return;
+
+                    if (!data.success) {
+                        showNotice(data.error || 'No se pudo sincronizar.');
+                        return;
+                    }
+
+                    const count = data.synced_count || 0;
+                    showNotice(`Sincronizado: ${count === 1 ? '1 fecha importada' : `${count} fechas importadas`}.`);
+                    loadExamDates();
+                })
+                .catch(err => {
+                    syncNowBtn.disabled = false;
+                    syncNowBtn.classList.remove('syncing');
+                    console.error('Error al sincronizar el calendario:', err);
+                    showNotice('No se pudo sincronizar. Revisa tu conexión e intenta de nuevo.');
+                });
+        });
+
+        disconnectCalendarBtn.addEventListener('click', () => {
+            if (!confirm('¿Desconectar tu Google Calendar? Se van a borrar las fechas importadas automáticamente (las que agregaste a mano quedan intactas).')) return;
+
+            disconnectCalendarBtn.disabled = true;
+            fetch('/calendar/disconnect', { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    disconnectCalendarBtn.disabled = false;
+                    if (data && data.success) {
+                        loadExamDates();
+                    }
+                })
+                .catch(err => {
+                    disconnectCalendarBtn.disabled = false;
+                    console.error('Error al desconectar el calendario:', err);
+                });
+        });
+
+        // El backend manda la fecha en UTC sin indicarlo explícitamente
+        // (sin 'Z' al final), así que hay que agregarlo antes de que JS la
+        // interprete, o el navegador la toma como si ya fuera hora local.
+        function formatSyncedAgo(isoString) {
+            if (!isoString) return 'nunca';
+            const synced = new Date(isoString + 'Z');
+            const diffMin = Math.max(0, Math.round((Date.now() - synced.getTime()) / 60000));
+            if (diffMin < 1) return 'justo ahora';
+            if (diffMin < 60) return `hace ${diffMin} min`;
+            const diffH = Math.round(diffMin / 60);
+            if (diffH < 24) return `hace ${diffH} h`;
+            const diffD = Math.round(diffH / 24);
+            return `hace ${diffD} d`;
+        }
+
+        function renderCalendarSyncState(data) {
+            if (data.calendar_connected) {
+                syncDisconnectedBox.classList.add('hidden');
+                syncConnectedBox.classList.remove('hidden');
+
+                if (data.calendar_sync_error) {
+                    syncStatusBox.classList.add('sync-error');
+                    syncStatusLabel.textContent = data.calendar_sync_error;
+                } else {
+                    syncStatusBox.classList.remove('sync-error');
+                    syncStatusLabel.textContent = `Conectado · sincronizado ${formatSyncedAgo(data.calendar_last_synced_at)}`;
+                }
+            } else {
+                syncConnectedBox.classList.add('hidden');
+                syncDisconnectedBox.classList.remove('hidden');
+            }
+        }
 
         function deleteExamDate(id) {
             fetch(`/exam_dates/${id}`, { method: 'DELETE' })

@@ -300,12 +300,18 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin-top: 28px;
             color: var(--text-muted);
             text-decoration: none;
             font-size: 0.9rem;
         }
         .back-link:hover { color: var(--text-main); }
+
+        .back-links-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 18px;
+            margin-top: 28px;
+        }
 
         @media (max-width: 480px) {
             .shop-card { padding: 28px 20px; }
@@ -411,7 +417,10 @@
         <p class="empty-hint">Todavía no hay objetos en la tienda.</p>
         {% endif %}
 
-        <a href="/profile" class="back-link"><i class="fas fa-arrow-left"></i> Volver al perfil</a>
+        <div class="back-links-row">
+            <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Volver al Promodoro</a>
+            <a href="/profile" class="back-link"><i class="fas fa-user"></i> Volver al perfil</a>
+        </div>
     </div>
 
     <script>
