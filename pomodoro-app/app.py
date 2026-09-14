@@ -248,6 +248,14 @@ SHOP_ITEMS = {
         'type': 'banner',
         'image_url': '/static/uploads/ponyo.gif'
     },
+    'banner_totoro': {
+        'id': 'banner_totoro',
+        'name': 'Banner Totoro 8 bit',
+        'description': 'Fondo animado de Studio Ghibli para tu perfil.',
+        'price':650,
+        'type': 'banner',
+        'image_url': 'https://files.catbox.moe/43ov83.gif'
+    },
     'banner_chihiro': {
         'id': 'banner_chihiro',
         'name': 'Banner Chihiro 8 bit',
@@ -255,6 +263,22 @@ SHOP_ITEMS = {
         'price':1000,
         'type': 'banner',
         'image_url': '/static/uploads/chihiro8bit.gif'
+    },
+    'frame_01': {
+        'id': 'frame_01',
+        'name': 'Marco Akuma',
+        'description': 'Un marco decorativo de un demonio que envuelve tu foto de perfil.',
+        'price': 500,
+        'type': 'frame',
+        'image_url': 'https://files.catbox.moe/o4se4r.png'
+    },
+    'frame_02': {
+        'id': 'frame_02',
+        'name': 'Cat Graffiti',
+        'description': 'Un marco decorativo estilo graffiti que envuelve tu foto de perfil.',
+        'price': 500,
+        'type': 'frame',
+        'image_url': 'https://files.catbox.moe/tjzgh2.png'
     },
     'font_orbitron': {
         'id': 'font_orbitron',
@@ -301,6 +325,11 @@ SHOP_ITEMS = {
         'audio_url': 'https://files.catbox.moe/s899is.mp3'
     }
 }
+
+# Helper para usar en las plantillas (ej. listas de seguidores/seguidos en
+# profile.html), donde solo tenemos el id del objeto equipado por cada
+# persona y necesitamos su image_url sin tener que pasarlo a mano por ruta.
+app.jinja_env.globals['shop_item_image'] = lambda item_id: (SHOP_ITEMS.get(item_id) or {}).get('image_url')
 
 # Categorías de canciones (coinciden con las 3 pistas del reproductor:
 # lofi/piano/rain), usadas solo para mostrar una etiqueta linda en la tienda.
@@ -439,6 +468,7 @@ class User(db.Model):
     profile_pic = db.Column(db.String(300), default='https://i.imgur.com/6VBx3io.png') # Avatar por defecto
     balance = db.Column(db.Integer, default=0)  # Puntos gastables en la tienda (no baja el total/rango)
     equipped_banner = db.Column(db.String(50), nullable=True)  # id del banner activo en el perfil
+    equipped_frame = db.Column(db.String(50), nullable=True)  # id del marco activo en la foto de perfil
     equipped_font = db.Column(db.String(50), nullable=True)  # id de la tipografía activa en el temporizador
     # Canción comprada equipada en cada categoría del reproductor (una por
     # categoría). None = se usa la pista gratuita de siempre para esa
@@ -602,6 +632,9 @@ def render_profile_page(viewer, profile_user, error=None):
     banner_item = SHOP_ITEMS.get(profile_user.equipped_banner)
     banner_url = banner_item['image_url'] if banner_item else None
 
+    frame_item = SHOP_ITEMS.get(profile_user.equipped_frame)
+    frame_url = frame_item['image_url'] if frame_item else None
+
     return render_template(
         'profile.html',
         user=viewer,
@@ -613,6 +646,7 @@ def render_profile_page(viewer, profile_user, error=None):
         following_ids=viewer_following_ids,
         rank=get_rank_info(profile_user.pomodoros),
         banner_url=banner_url,
+        frame_url=frame_url,
         error=error
     )
 
@@ -926,6 +960,8 @@ def buy_item(item_id):
     # pero por categoría (lofi/piano/rain) en vez de un solo slot global.
     if item['type'] == 'banner' and user.equipped_banner is None:
         user.equipped_banner = item_id
+    elif item['type'] == 'frame' and user.equipped_frame is None:
+        user.equipped_frame = item_id
     elif item['type'] == 'font' and user.equipped_font is None:
         user.equipped_font = item_id
     elif item['type'] == 'sound':
@@ -939,6 +975,7 @@ def buy_item(item_id):
         "success": True,
         "new_balance": user.balance,
         "equipped_banner": user.equipped_banner,
+        "equipped_frame": user.equipped_frame,
         "equipped_font": user.equipped_font,
         "equipped_sounds": {
             "lofi": user.equipped_sound_lofi,
@@ -962,7 +999,7 @@ def equip_item(item_id):
     if item is None:
         return jsonify({"error": "Objeto no encontrado"}), 404
 
-    if item['type'] not in ('banner', 'font', 'sound'):
+    if item['type'] not in ('banner', 'frame', 'font', 'sound'):
         return jsonify({"error": "Este objeto no se puede equipar"}), 400
 
     if not user.owns_item(item_id):
@@ -970,6 +1007,8 @@ def equip_item(item_id):
 
     if item['type'] == 'banner':
         user.equipped_banner = item_id
+    elif item['type'] == 'frame':
+        user.equipped_frame = item_id
     elif item['type'] == 'font':
         user.equipped_font = item_id
     else:
@@ -979,6 +1018,7 @@ def equip_item(item_id):
     return jsonify({
         "success": True,
         "equipped_banner": user.equipped_banner,
+        "equipped_frame": user.equipped_frame,
         "equipped_font": user.equipped_font,
         "equipped_sounds": {
             "lofi": user.equipped_sound_lofi,
@@ -1002,6 +1042,22 @@ def unequip_banner():
     db.session.commit()
 
     return jsonify({"success": True, "equipped_banner": None})
+
+
+@app.route('/shop/unequip_frame', methods=['POST'])
+def unequip_frame():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    user.equipped_frame = None
+    db.session.commit()
+
+    return jsonify({"success": True, "equipped_frame": None})
 
 
 @app.route('/shop/unequip_font', methods=['POST'])
@@ -1736,6 +1792,10 @@ with app.app_context():
 
         if 'equipped_banner' not in existing_columns:
             db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_banner VARCHAR(50)'))
+            db.session.commit()
+
+        if 'equipped_frame' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_frame VARCHAR(50)'))
             db.session.commit()
 
         if 'equipped_font' not in existing_columns:

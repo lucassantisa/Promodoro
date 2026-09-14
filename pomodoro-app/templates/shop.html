@@ -211,6 +211,18 @@
         }
         .item-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
+        /* Los marcos son PNG cuadrados con un hueco circular transparente
+           en el medio (ver la foto de perfil real detrás); con 'cover' se
+           recortarían los bordes decorativos, así que acá usamos 'contain'
+           y un círculo de referencia detrás para simular cómo se ve puesto. */
+        .frame-preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle, rgba(139, 92, 246, 0.25) 0%, #000 62%);
+        }
+        .frame-preview img { width: 88%; height: 88%; object-fit: contain; }
+
         .font-preview {
             display: flex;
             align-items: center;
@@ -349,6 +361,9 @@
                 {% if user.equipped_banner %}
                 <button class="unequip-link" id="unequip-banner-btn" onclick="unequipBanner()">Quitar banner actual</button>
                 {% endif %}
+                {% if user.equipped_frame %}
+                <button class="unequip-link" id="unequip-frame-btn" onclick="unequipFrame()">Quitar marco actual</button>
+                {% endif %}
                 {% if user.equipped_font %}
                 <button class="unequip-link" id="unequip-font-btn" onclick="unequipFont()">Quitar tipografía actual</button>
                 {% endif %}
@@ -376,6 +391,8 @@
                     <span class="sound-icon">🎵</span>
                     <audio controls preload="none" src="{{ item.audio_url }}"></audio>
                 </div>
+                {% elif item.type == 'frame' %}
+                <div class="item-preview frame-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}" loading="lazy" decoding="async"></div>
                 {% else %}
                 <div class="item-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}" loading="lazy" decoding="async"></div>
                 {% endif %}
@@ -389,6 +406,12 @@
                             <button class="buy-btn owned banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
                         {% else %}
                             <button class="buy-btn equip banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)">Equipar</button>
+                        {% endif %}
+                    {% elif item.type == 'frame' %}
+                        {% if user.equipped_frame == item.id %}
+                            <button class="buy-btn owned frame-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
+                        {% else %}
+                            <button class="buy-btn equip frame-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)">Equipar</button>
                         {% endif %}
                     {% elif item.type == 'font' %}
                         {% if user.equipped_font == item.id %}
@@ -428,7 +451,7 @@
             const itemId = btn.dataset.itemId;
             const itemType = btn.dataset.itemType;
             const category = btn.dataset.category;
-            const isEquippable = itemType === 'banner' || itemType === 'font' || itemType === 'sound';
+            const isEquippable = itemType === 'banner' || itemType === 'frame' || itemType === 'font' || itemType === 'sound';
             btn.disabled = true;
             const originalText = btn.textContent;
             btn.textContent = 'Comprando...';
@@ -459,7 +482,7 @@
                         // mismo tipo (y, en el caso de canciones, de la misma
                         // categoría) que ya tenías, para poder cambiarlo
                         // más adelante.
-                        const toggleClass = itemType === 'banner' ? 'banner-toggle-btn' : itemType === 'font' ? 'font-toggle-btn' : 'sound-toggle-btn';
+                        const toggleClass = itemType === 'banner' ? 'banner-toggle-btn' : itemType === 'frame' ? 'frame-toggle-btn' : itemType === 'font' ? 'font-toggle-btn' : 'sound-toggle-btn';
                         btn.classList.remove('locked');
                         btn.classList.add(toggleClass);
                         btn.onclick = () => equipItem(btn);
@@ -467,6 +490,9 @@
                         if (itemType === 'banner') {
                             refreshBannerButtons(data.equipped_banner);
                             maybeShowUnequipLink('banner', data.equipped_banner);
+                        } else if (itemType === 'frame') {
+                            refreshFrameButtons(data.equipped_frame);
+                            maybeShowUnequipLink('frame', data.equipped_frame);
                         } else if (itemType === 'font') {
                             refreshFontButtons(data.equipped_font);
                             maybeShowUnequipLink('font', data.equipped_font);
@@ -489,6 +515,7 @@
 
         function equipItem(btn) {
             const itemId = btn.dataset.itemId;
+            const isFrame = btn.classList.contains('frame-toggle-btn');
             const isFont = btn.classList.contains('font-toggle-btn');
             const isSound = btn.classList.contains('sound-toggle-btn');
             const category = btn.dataset.category;
@@ -517,6 +544,9 @@
                     if (isSound) {
                         refreshSoundButtons(category, data.equipped_sounds[category]);
                         maybeShowSoundUnequipLink(category, data.equipped_sounds[category]);
+                    } else if (isFrame) {
+                        refreshFrameButtons(data.equipped_frame);
+                        maybeShowUnequipLink('frame', data.equipped_frame);
                     } else if (isFont) {
                         refreshFontButtons(data.equipped_font);
                         maybeShowUnequipLink('font', data.equipped_font);
@@ -552,6 +582,28 @@
                     if (link) link.remove();
                 })
                 .catch(err => console.error('Error al quitar el banner:', err));
+        }
+
+        function unequipFrame() {
+            const link = document.getElementById('unequip-frame-btn');
+            fetch('/shop/unequip_frame', { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo quitar el marco.');
+                        return;
+                    }
+                    refreshFrameButtons(null);
+                    if (link) link.remove();
+                })
+                .catch(err => console.error('Error al quitar el marco:', err));
         }
 
         function unequipFont() {
@@ -613,6 +665,17 @@
             });
         }
 
+        // Mismo comportamiento que refreshBannerButtons, pero para los marcos de perfil.
+        function refreshFrameButtons(equippedId) {
+            document.querySelectorAll('.frame-toggle-btn').forEach(b => {
+                const isThisOne = b.dataset.itemId === equippedId;
+                b.disabled = isThisOne;
+                b.textContent = isThisOne ? '✅ Equipado' : 'Equipar';
+                b.classList.toggle('owned', isThisOne);
+                b.classList.toggle('equip', !isThisOne);
+            });
+        }
+
         // Mismo comportamiento que refreshBannerButtons, pero para las
         // tipografías del temporizador.
         function refreshFontButtons(equippedId) {
@@ -639,13 +702,13 @@
         }
 
         function maybeShowUnequipLink(kind, equippedId) {
-            const linkId = kind === 'banner' ? 'unequip-banner-btn' : 'unequip-font-btn';
+            const linkId = kind === 'banner' ? 'unequip-banner-btn' : kind === 'frame' ? 'unequip-frame-btn' : 'unequip-font-btn';
             if (equippedId && !document.getElementById(linkId)) {
                 const btn = document.createElement('button');
                 btn.className = 'unequip-link';
                 btn.id = linkId;
-                btn.textContent = kind === 'banner' ? 'Quitar banner actual' : 'Quitar tipografía actual';
-                btn.onclick = kind === 'banner' ? unequipBanner : unequipFont;
+                btn.textContent = kind === 'banner' ? 'Quitar banner actual' : kind === 'frame' ? 'Quitar marco actual' : 'Quitar tipografía actual';
+                btn.onclick = kind === 'banner' ? unequipBanner : kind === 'frame' ? unequipFrame : unequipFont;
                 document.querySelector('.header-right').appendChild(btn);
             }
         }

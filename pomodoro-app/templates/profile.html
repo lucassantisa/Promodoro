@@ -128,7 +128,7 @@
             top: -40px;
             left: -40px;
             right: -40px;
-            height: 200px;
+            height: 250px;
             width: calc(100% + 80px);
             object-fit: cover;
             object-position: center 25%;
@@ -147,14 +147,34 @@
             z-index: 1;
         }
 
-        .big-avatar {
+        .big-avatar-wrap {
+            position: relative;
             width: 100px;
             height: 100px;
+            margin-bottom: 14px;
+        }
+        .big-avatar {
+            width: 100%;
+            height: 100%;
             border-radius: 50%;
             object-fit: cover;
             border: 3px solid var(--accent);
             box-shadow: 0 0 25px var(--accent-glow);
-            margin-bottom: 14px;
+            display: block;
+        }
+        /* El marco es un PNG cuadrado más grande que la foto (con hueco
+           circular transparente en el medio), así que se superpone
+           centrado y agrandado para que su decoración sobresalga del
+           círculo del avatar en vez de quedar tapada por él. */
+        .avatar-frame-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 132%;
+            height: 132%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            object-fit: contain;
         }
 
         .profile-username { font-size: 1.5rem; font-weight: 600; }
@@ -478,7 +498,12 @@
 
         <!-- Cabecera -->
         <div class="profile-top">
-            <img src="{{ profile_user.profile_pic }}" alt="Foto de Perfil" class="big-avatar" id="avatar-preview" decoding="async">
+            <div class="big-avatar-wrap">
+                <img src="{{ profile_user.profile_pic }}" alt="Foto de Perfil" class="big-avatar" id="avatar-preview" decoding="async">
+                {% if frame_url %}
+                <img src="{{ frame_url }}" alt="" class="avatar-frame-overlay" decoding="async">
+                {% endif %}
+            </div>
             <div class="profile-username">{{ profile_user.username }}</div>
 
             {% if is_own %}
