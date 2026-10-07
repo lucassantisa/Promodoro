@@ -288,6 +288,51 @@ SHOP_ITEMS = {
         'type': 'font',
         'font_family': 'Orbitron'
     },
+    'wallpaper_atardecer': {
+        'id': 'wallpaper_atardecer',
+        'name': 'Fondo Atardecer',
+        'description': 'Un paisaje animado de atardecer junto al lago como fondo de tu pantalla principal.',
+        'price': 1000,
+        'type': 'wallpaper',
+        # Video en loop (principal) y GIF de respaldo por si el video no carga
+        'video_url': 'https://files.catbox.moe/1foe7y.mp4'
+    },
+    'wallpaper_zelda': {
+        'id': 'wallpaper_zelda',
+        'name': 'Zelda Forest',
+        'description': 'Un bosque animado del juego The legend of Zelda como fondo de tu pantalla principal.',
+        'price': 1000,
+        'type': 'wallpaper',
+        # Video en loop (principal) y GIF de respaldo por si el video no carga
+        'video_url': 'https://files.catbox.moe/e9t9xc.mp4'
+    },
+    'wallpaper_persona': {
+        'id': 'wallpaper_persona',
+        'name': 'Persona 3',
+        'description': 'Una animación del juego Persona 3 como fondo de tu pantalla principal.',
+        'price': 1000,
+        'type': 'wallpaper',
+        # Video en loop (principal) y GIF de respaldo por si el video no carga
+        'video_url': 'https://files.catbox.moe/hqpwwz.mp4'
+    },
+     'wallpaper_horadeaventura': {
+        'id': 'wallpaper_horadeaventura',
+        'name': 'Adventure Time',
+        'description': 'Una animación de la famosa serie Hora de Aventura como fondo de tu pantalla principal.',
+        'price': 1000,
+        'type': 'wallpaper',
+        # Video en loop (principal) y GIF de respaldo por si el video no carga
+        'video_url': 'https://files.catbox.moe/apjdd1.mp4'
+     },
+      'wallpaper_avatar': {
+        'id': 'wallpaper_avatar',
+        'name': 'Avatar',
+        'description': 'Una animación de la serie Avatar como fondo de tu pantalla principal.',
+        'price': 1000,
+        'type': 'wallpaper',
+        # Video en loop (principal) y GIF de respaldo por si el video no carga
+        'video_url': 'https://files.catbox.moe/9hsi7f.mp4'
+    },
     'sound_lofi_nocturno': {
         'id': 'sound_lofi_nocturno',
         'name': 'Lofi Nocturno',
@@ -470,6 +515,7 @@ class User(db.Model):
     equipped_banner = db.Column(db.String(50), nullable=True)  # id del banner activo en el perfil
     equipped_frame = db.Column(db.String(50), nullable=True)  # id del marco activo en la foto de perfil
     equipped_font = db.Column(db.String(50), nullable=True)  # id de la tipografía activa en el temporizador
+    equipped_wallpaper = db.Column(db.String(50), nullable=True)  # id del fondo animado activo en la pantalla principal (None = fondo predeterminado)
     # Canción comprada equipada en cada categoría del reproductor (una por
     # categoría). None = se usa la pista gratuita de siempre para esa
     # categoría (ver DEFAULT_TRACKS / get_user_tracks).
@@ -616,7 +662,12 @@ def index():
     rank = get_rank_info(user.pomodoros)
     timer_font_class = FONT_CSS_CLASSES.get(user.equipped_font, '')
     tracks = get_user_tracks(user)
-    return render_template('index.html', user=user, rank=rank, ranks=RANKS, timer_font_class=timer_font_class, tracks=tracks)
+    # Fondo animado: solo si el usuario compró y equipó uno; si no, se ve el
+    # fondo predeterminado de siempre.
+    wallpaper = SHOP_ITEMS.get(user.equipped_wallpaper)
+    if not wallpaper or wallpaper['type'] != 'wallpaper' or not user.owns_item(wallpaper['id']):
+        wallpaper = None
+    return render_template('index.html', user=user, rank=rank, ranks=RANKS, timer_font_class=timer_font_class, tracks=tracks, wallpaper=wallpaper)
 
 def render_profile_page(viewer, profile_user, error=None):
     """Arma el contexto compartido por /profile y /profile/<username>."""
@@ -964,6 +1015,8 @@ def buy_item(item_id):
         user.equipped_frame = item_id
     elif item['type'] == 'font' and user.equipped_font is None:
         user.equipped_font = item_id
+    elif item['type'] == 'wallpaper' and user.equipped_wallpaper is None:
+        user.equipped_wallpaper = item_id
     elif item['type'] == 'sound':
         field = f"equipped_sound_{item['category']}"
         if getattr(user, field, None) is None:
@@ -977,6 +1030,7 @@ def buy_item(item_id):
         "equipped_banner": user.equipped_banner,
         "equipped_frame": user.equipped_frame,
         "equipped_font": user.equipped_font,
+        "equipped_wallpaper": user.equipped_wallpaper,
         "equipped_sounds": {
             "lofi": user.equipped_sound_lofi,
             "piano": user.equipped_sound_piano,
@@ -999,7 +1053,7 @@ def equip_item(item_id):
     if item is None:
         return jsonify({"error": "Objeto no encontrado"}), 404
 
-    if item['type'] not in ('banner', 'frame', 'font', 'sound'):
+    if item['type'] not in ('banner', 'frame', 'font', 'wallpaper', 'sound'):
         return jsonify({"error": "Este objeto no se puede equipar"}), 400
 
     if not user.owns_item(item_id):
@@ -1011,6 +1065,8 @@ def equip_item(item_id):
         user.equipped_frame = item_id
     elif item['type'] == 'font':
         user.equipped_font = item_id
+    elif item['type'] == 'wallpaper':
+        user.equipped_wallpaper = item_id
     else:
         setattr(user, f"equipped_sound_{item['category']}", item_id)
     db.session.commit()
@@ -1020,6 +1076,7 @@ def equip_item(item_id):
         "equipped_banner": user.equipped_banner,
         "equipped_frame": user.equipped_frame,
         "equipped_font": user.equipped_font,
+        "equipped_wallpaper": user.equipped_wallpaper,
         "equipped_sounds": {
             "lofi": user.equipped_sound_lofi,
             "piano": user.equipped_sound_piano,
@@ -1074,6 +1131,23 @@ def unequip_font():
     db.session.commit()
 
     return jsonify({"success": True, "equipped_font": None})
+
+
+@app.route('/shop/unequip_wallpaper', methods=['POST'])
+def unequip_wallpaper():
+    """Quita el fondo animado equipado y vuelve al fondo predeterminado."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    user.equipped_wallpaper = None
+    db.session.commit()
+
+    return jsonify({"success": True, "equipped_wallpaper": None})
 
 
 @app.route('/shop/unequip_sound/<category>', methods=['POST'])
@@ -1800,6 +1874,10 @@ with app.app_context():
 
         if 'equipped_font' not in existing_columns:
             db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_font VARCHAR(50)'))
+            db.session.commit()
+
+        if 'equipped_wallpaper' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN equipped_wallpaper VARCHAR(50)'))
             db.session.commit()
 
         for sound_column in ('equipped_sound_lofi', 'equipped_sound_piano', 'equipped_sound_rain'):

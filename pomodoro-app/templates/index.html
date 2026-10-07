@@ -1141,9 +1141,92 @@
             color: var(--text-main);
         }
         .follow-btn.following:hover { border-color: #ef4444; color: #ef4444; box-shadow: none; }
+
+        /* ===== Fondo (wallpaper) de la pantalla principal =====
+           Video en loop detrás de todo. Si el video no carga o el navegador
+           bloquea el autoplay, se muestra el GIF de respaldo. */
+        .wallpaper {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+            background-color: var(--bg-base);
+        }
+        .wallpaper-media {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        /* Capa semitransparente para que el panel y el texto se lean bien */
+        .wallpaper::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(11, 15, 25, 0.45);
+        }
+        [data-theme="light"] .wallpaper::after { background: rgba(238, 240, 247, 0.35); }
+
+        .wallpaper-gif { display: none; }
+        .wallpaper.use-gif .wallpaper-video { display: none; }
+        .wallpaper.use-gif .wallpaper-gif { display: block; }
+
+        /* Con wallpaper activo, las luces difusas sobran (y son pesadas para la GPU) */
+        body.has-wallpaper .ambient-light { display: none; }
     </style>
 </head>
 <body>
+
+    {% if wallpaper %}
+    <!-- Fondo animado (se compra en la tienda): video mp4 (principal) + GIF
+         (respaldo, solo se descarga si hace falta). Sin fondo equipado, se ve
+         el fondo predeterminado con las luces difusas. -->
+    <div class="wallpaper" id="wallpaper" aria-hidden="true">
+        <video class="wallpaper-media wallpaper-video" id="wallpaper-video"
+               src="{{ wallpaper.video_url }}"
+               autoplay muted loop playsinline preload="auto"></video>
+        <img class="wallpaper-media wallpaper-gif" id="wallpaper-gif" alt=""
+             data-src="{{ wallpaper.gif_url }}" decoding="async">
+    </div>
+    <script>
+        (function () {
+            const wp = document.getElementById('wallpaper');
+            const video = document.getElementById('wallpaper-video');
+            const gif = document.getElementById('wallpaper-gif');
+            document.body.classList.add('has-wallpaper');
+
+            function useGif() {
+                if (wp.classList.contains('use-gif')) return;
+                gif.src = gif.dataset.src;
+                wp.classList.add('use-gif');
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+            }
+
+            // El video falló al cargar (enlace caído, formato no soportado, sin red...)
+            video.addEventListener('error', useGif);
+
+            // Si el navegador bloquea el autoplay (p. ej. ahorro de batería en iOS),
+            // el GIF sí se anima solo, así que se usa de respaldo.
+            const p = video.play();
+            if (p && typeof p.catch === 'function') p.catch(useGif);
+
+            // Si por cualquier motivo el video quedó en pausa, se reintenta
+            // con el primer gesto del usuario (clic, toque o tecla).
+            function retryPlay() {
+                if (!wp.classList.contains('use-gif') && video.paused) {
+                    video.play().catch(() => {});
+                }
+            }
+            ['pointerdown', 'keydown', 'touchstart'].forEach(function (evt) {
+                document.addEventListener(evt, retryPlay, { once: true, passive: true });
+            });
+        })();
+    </script>
+    {% endif %}
 
     <div class="ambient-light light-1"></div>
     <div class="ambient-light light-2"></div>
