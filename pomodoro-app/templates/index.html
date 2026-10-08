@@ -1175,54 +1175,171 @@
 
         /* Con wallpaper activo, las luces difusas sobran (y son pesadas para la GPU) */
         body.has-wallpaper .ambient-light { display: none; }
+
+        /* Modo liviano (se activa solo si la guardia de rendimiento detecta
+           tirones). Un panel con backdrop-filter sobre un video obliga a la
+           GPU a redibujar el desenfoque en CADA cuadro del video; en equipos
+           justos eso es lo que lo deja pegado. Sin el desenfoque, el panel
+           se compensa con un fondo casi opaco para que se siga leyendo bien. */
+        body.has-wallpaper.wallpaper-lite .app-container,
+        body.has-wallpaper.wallpaper-lite .search-overlay,
+        body.has-wallpaper.wallpaper-lite .stats-overlay {
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+        }
+        body.has-wallpaper.wallpaper-lite .app-container {
+            background: var(--bg-panel-solid);
+            background: color-mix(in srgb, var(--bg-panel-solid) 90%, transparent);
+        }
     </style>
 </head>
 <body>
 
     {% if wallpaper %}
-    <!-- Fondo animado (se compra en la tienda): video mp4 (principal) + GIF
-         (respaldo, solo se descarga si hace falta). Sin fondo equipado, se ve
-         el fondo predeterminado con las luces difusas. -->
+    <!-- Fondo animado (se compra en la tienda). Si el video no se puede
+         reproducir se prueba, en orden: GIF de respaldo (opcional) -> foto de
+         portada quieta (opcional) -> fondo predeterminado con las luces
+         difusas. Sin fondo equipado, se ve siempre el fondo predeterminado. -->
     <div class="wallpaper" id="wallpaper" aria-hidden="true">
         <video class="wallpaper-media wallpaper-video" id="wallpaper-video"
                src="{{ wallpaper.video_url }}"
-               autoplay muted loop playsinline preload="auto"></video>
+               {% if wallpaper.poster_url %}poster="{{ wallpaper.poster_url }}"{% endif %}
+               autoplay muted loop playsinline preload="auto"
+               disablepictureinpicture disableremoteplayback></video>
+        {% if wallpaper.gif_url %}
         <img class="wallpaper-media wallpaper-gif" id="wallpaper-gif" alt=""
              data-src="{{ wallpaper.gif_url }}" decoding="async">
+        {% endif %}
     </div>
     <script>
         (function () {
             const wp = document.getElementById('wallpaper');
             const video = document.getElementById('wallpaper-video');
-            const gif = document.getElementById('wallpaper-gif');
+            const gif = document.getElementById('wallpaper-gif');   // puede no existir
+            const hasPoster = video.hasAttribute('poster');
+            let failed = false;
             document.body.classList.add('has-wallpaper');
 
-            function useGif() {
-                if (wp.classList.contains('use-gif')) return;
-                gif.src = gif.dataset.src;
-                wp.classList.add('use-gif');
+            // Quita el fondo animado por completo y deja el predeterminado.
+            function dropWallpaper() {
+                document.body.classList.remove('has-wallpaper', 'wallpaper-lite');
+                video.pause();
+                wp.remove();
+            }
+
+            // El video no se pudo reproducir (archivo caído, formato que ese
+            // navegador no soporta, sin red...). Nunca se deja una imagen rota.
+            function videoFailed() {
+                if (failed) return;
+                failed = true;
+                if (gif && gif.dataset.src) {
+                    gif.addEventListener('error', function () {
+                        wp.classList.remove('use-gif');
+                        if (!hasPoster) dropWallpaper();
+                    }, { once: true });
+                    gif.src = gif.dataset.src;
+                    wp.classList.add('use-gif');
+                } else if (!hasPoster) {
+                    dropWallpaper();
+                    return;
+                }
+                // Con foto de portada (y sin GIF) se queda la portada quieta.
                 video.pause();
                 video.removeAttribute('src');
                 video.load();
             }
+            video.addEventListener('error', videoFailed);
 
-            // El video falló al cargar (enlace caído, formato no soportado, sin red...)
-            video.addEventListener('error', useGif);
+            // ----- Guardia de rendimiento -----
+            // Mide los cuadros por segundo reales de la página. Si el equipo va
+            // justo: nivel 1 = quita el desenfoque del panel (lo más caro de
+            // dibujar sobre un video); nivel 2 = si aun así va lento, pausa el
+            // video. Se recuerda solo durante la sesión de la pestaña.
+            const PERF_KEY = 'wallpaperPerfLevel';
+            const LOW_FPS = 24;
+            let level = 0;
+            try { level = Number(sessionStorage.getItem(PERF_KEY)) || 0; } catch (e) {}
 
-            // Si el navegador bloquea el autoplay (p. ej. ahorro de batería en iOS),
-            // el GIF sí se anima solo, así que se usa de respaldo.
-            const p = video.play();
-            if (p && typeof p.catch === 'function') p.catch(useGif);
+            function setLevel(n) {
+                level = n;
+                try { sessionStorage.setItem(PERF_KEY, String(n)); } catch (e) {}
+                document.body.classList.toggle('wallpaper-lite', n >= 1);
+                if (n >= 2) {
+                    video.removeAttribute('autoplay');
+                    video.pause();
+                }
+            }
 
-            // Si por cualquier motivo el video quedó en pausa, se reintenta
-            // con el primer gesto del usuario (clic, toque o tecla).
+            function measureFps(durationMs, done) {
+                let frames = 0, start = null, hidden = false;
+                const onVis = function () { if (document.hidden) hidden = true; };
+                document.addEventListener('visibilitychange', onVis);
+                function finish(fps) {
+                    document.removeEventListener('visibilitychange', onVis);
+                    done(fps);
+                }
+                function tick(t) {
+                    if (hidden) return finish(null);
+                    if (start === null) start = t;
+                    frames++;
+                    if (t - start >= durationMs) return finish((frames - 1) * 1000 / (t - start));
+                    requestAnimationFrame(tick);
+                }
+                requestAnimationFrame(tick);
+            }
+
+            function checkPerformance() {
+                if (level >= 2 || failed || !wp.isConnected) return;
+                measureFps(3000, function (fps) {
+                    if (fps === null || fps >= LOW_FPS) return;   // pestaña oculta, o va bien
+                    setLevel(level + 1);
+                    if (level >= 2) {
+                        if (typeof showNotice === 'function') {
+                            showNotice('Tu equipo va justo: pausé el fondo animado para que la app funcione fluida.');
+                        }
+                    } else {
+                        setTimeout(checkPerformance, 1500);        // ¿mejoró sin el desenfoque?
+                    }
+                });
+            }
+
+            if (level) setLevel(level);
+            video.addEventListener('playing', function () {
+                setTimeout(checkPerformance, 2000);                // deja pasar la carga inicial
+            }, { once: true });
+
+            // ----- Reproducción -----
+            if (level < 2) {
+                const p = video.play();
+                if (p && typeof p.catch === 'function') {
+                    p.catch(function (err) {
+                        if (!err || err.name === 'AbortError') return;   // lo interrumpimos nosotros
+                        if (err.name === 'NotAllowedError') {
+                            // Autoplay bloqueado (p. ej. ahorro de batería en iOS): el GIF
+                            // se anima solo; si no hay GIF, se espera al primer clic.
+                            if (gif && gif.dataset.src) videoFailed();
+                            return;
+                        }
+                        videoFailed();
+                    });
+                }
+            }
+
+            // Si el video quedó en pausa, se reintenta con el primer gesto.
             function retryPlay() {
-                if (!wp.classList.contains('use-gif') && video.paused) {
-                    video.play().catch(() => {});
+                if (!failed && level < 2 && video.paused && wp.isConnected) {
+                    video.play().catch(function () {});
                 }
             }
             ['pointerdown', 'keydown', 'touchstart'].forEach(function (evt) {
                 document.addEventListener(evt, retryPlay, { once: true, passive: true });
+            });
+
+            // Con la pestaña oculta no tiene sentido decodificar video.
+            document.addEventListener('visibilitychange', function () {
+                if (!wp.isConnected || failed || level >= 2) return;
+                if (document.hidden) video.pause();
+                else video.play().catch(function () {});
             });
         })();
     </script>

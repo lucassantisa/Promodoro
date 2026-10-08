@@ -376,6 +376,31 @@ SHOP_ITEMS = {
 # persona y necesitamos su image_url sin tener que pasarlo a mano por ruta.
 app.jinja_env.globals['shop_item_image'] = lambda item_id: (SHOP_ITEMS.get(item_id) or {}).get('image_url')
 
+# Carpeta con copias optimizadas de los fondos animados. Las genera el script
+# tools/optimize_wallpapers.py (video H.264 liviano + una foto de portada por
+# fondo). Si existen, se usan en vez del enlace externo de 'video_url': cargan
+# más rápido, se ven en cualquier navegador y no dependen de que el sitio
+# externo siga funcionando. Si no existen, todo sigue funcionando con el enlace.
+WALLPAPER_STATIC_DIR = os.path.join(app.static_folder, 'wallpapers')
+
+
+def resolve_wallpaper_media(item):
+    """Devuelve una copia del objeto con las URLs finales del fondo animado:
+    la versión optimizada local (static/wallpapers/<id>.mp4 y <id>.jpg) si
+    existe, o el 'video_url' externo como respaldo. Solo toca objetos de tipo
+    'wallpaper'; cualquier otro (o None) se devuelve igual."""
+    if not item or item.get('type') != 'wallpaper':
+        return item
+    resolved = dict(item)
+    for kind, ext in (('video_url', 'mp4'), ('poster_url', 'jpg')):
+        filename = f"wallpapers/{item['id']}.{ext}"
+        path = os.path.join(app.static_folder, filename)
+        if os.path.isfile(path):
+            # ?v=<fecha del archivo> para que el navegador no use una copia vieja
+            # al volver a optimizar los fondos.
+            resolved[kind] = url_for('static', filename=filename) + f"?v={int(os.path.getmtime(path))}"
+    return resolved
+
 # Categorías de canciones (coinciden con las 3 pistas del reproductor:
 # lofi/piano/rain), usadas solo para mostrar una etiqueta linda en la tienda.
 SOUND_CATEGORY_LABELS = {
@@ -667,6 +692,7 @@ def index():
     wallpaper = SHOP_ITEMS.get(user.equipped_wallpaper)
     if not wallpaper or wallpaper['type'] != 'wallpaper' or not user.owns_item(wallpaper['id']):
         wallpaper = None
+    wallpaper = resolve_wallpaper_media(wallpaper)
     return render_template('index.html', user=user, rank=rank, ranks=RANKS, timer_font_class=timer_font_class, tracks=tracks, wallpaper=wallpaper)
 
 def render_profile_page(viewer, profile_user, error=None):
@@ -967,7 +993,7 @@ def shop():
         return redirect(url_for('login'))
 
     owned_ids = {p.item_id for p in user.purchases.all()}
-    items = list(SHOP_ITEMS.values())
+    items = [resolve_wallpaper_media(item) for item in SHOP_ITEMS.values()]
     equipped_sounds = {
         'lofi': user.equipped_sound_lofi,
         'piano': user.equipped_sound_piano,
