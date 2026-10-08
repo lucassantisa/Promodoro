@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -304,7 +305,7 @@ SHOP_ITEMS = {
         'price': 1000,
         'type': 'wallpaper',
         # Video en loop (principal) y GIF de respaldo por si el video no carga
-        'video_url': 'https://files.catbox.moe/e9t9xc.mp4'
+        'video_url': 'https://files.catbox.moe/zndv5x.mp4'
     },
     'wallpaper_persona': {
         'id': 'wallpaper_persona',
@@ -332,6 +333,15 @@ SHOP_ITEMS = {
         'type': 'wallpaper',
         # Video en loop (principal) y GIF de respaldo por si el video no carga
         'video_url': 'https://files.catbox.moe/9hsi7f.mp4'
+      },
+      'wallpaper_totoro': {
+        'id': 'wallpaper_totoro',
+        'name': 'Totoro Night',
+        'description': 'Una animación de Totoro observando las estrellas como fondo de tu pantalla principal.',
+        'price': 1000,
+        'type': 'wallpaper',
+        # Video en loop (principal) y GIF de respaldo por si el video no carga
+        'video_url': 'https://files.catbox.moe/om1a95.mp4'
     },
     'sound_lofi_nocturno': {
         'id': 'sound_lofi_nocturno',
@@ -384,6 +394,17 @@ app.jinja_env.globals['shop_item_image'] = lambda item_id: (SHOP_ITEMS.get(item_
 WALLPAPER_STATIC_DIR = os.path.join(app.static_folder, 'wallpapers')
 
 
+def _wallpaper_manifest():
+    """{id_del_fondo: video_url del que se hizo la copia optimizada}.
+    Lo escribe tools/optimize_wallpapers.py. Si no existe, devuelve {}."""
+    try:
+        with open(os.path.join(WALLPAPER_STATIC_DIR, 'manifest.json'), encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def resolve_wallpaper_media(item):
     """Devuelve una copia del objeto con las URLs finales del fondo animado:
     la versión optimizada local (static/wallpapers/<id>.mp4 y <id>.jpg) si
@@ -392,6 +413,11 @@ def resolve_wallpaper_media(item):
     if not item or item.get('type') != 'wallpaper':
         return item
     resolved = dict(item)
+    # La copia local solo vale si se hizo a partir del 'video_url' ACTUAL. Si
+    # cambias el video de un fondo (aunque conserve el mismo id), la copia vieja
+    # se ignora hasta que vuelvas a correr tools/optimize_wallpapers.py.
+    if _wallpaper_manifest().get(item['id']) != item.get('video_url'):
+        return resolved
     for kind, ext in (('video_url', 'mp4'), ('poster_url', 'jpg')):
         filename = f"wallpapers/{item['id']}.{ext}"
         path = os.path.join(app.static_folder, filename)
@@ -400,6 +426,20 @@ def resolve_wallpaper_media(item):
             # al volver a optimizar los fondos.
             resolved[kind] = url_for('static', filename=filename) + f"?v={int(os.path.getmtime(path))}"
     return resolved
+
+
+def warn_unoptimized_wallpapers():
+    """Avisa en la consola al arrancar qué fondos se están sirviendo directo
+    desde su enlace externo (sin optimizar). Son los que suelen ir con lag."""
+    manifest = _wallpaper_manifest()
+    pending = [i['id'] for i in SHOP_ITEMS.values()
+               if i.get('type') == 'wallpaper' and manifest.get(i['id']) != i.get('video_url')]
+    if pending:
+        print('[fondos] Sin copia optimizada (pueden ir con lag): ' + ', '.join(pending), flush=True)
+        print('[fondos] Para optimizarlos ejecuta:  python tools/optimize_wallpapers.py', flush=True)
+
+
+warn_unoptimized_wallpapers()
 
 # Categorías de canciones (coinciden con las 3 pistas del reproductor:
 # lofi/piano/rain), usadas solo para mostrar una etiqueta linda en la tienda.

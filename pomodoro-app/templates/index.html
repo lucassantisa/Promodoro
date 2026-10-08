@@ -1251,12 +1251,15 @@
             video.addEventListener('error', videoFailed);
 
             // ----- Guardia de rendimiento -----
-            // Mide los cuadros por segundo reales de la página. Si el equipo va
-            // justo: nivel 1 = quita el desenfoque del panel (lo más caro de
-            // dibujar sobre un video); nivel 2 = si aun así va lento, pausa el
-            // video. Se recuerda solo durante la sesión de la pestaña.
+            // Detecta dos tipos de tirones: que la página dibuje pocos cuadros
+            // por segundo, o que el video pierda muchos de sus cuadros (típico
+            // de un video muy pesado). Si el equipo va justo: nivel 1 = quita
+            // el desenfoque del panel (lo más caro de dibujar sobre un video);
+            // nivel 2 = si aun así va lento, pausa el video. Se recuerda solo
+            // durante la sesión de la pestaña.
             const PERF_KEY = 'wallpaperPerfLevel';
-            const LOW_FPS = 24;
+            const LOW_FPS = 24;          // menos cuadros/seg en la página = tirones
+            const MAX_DROP_RATIO = 0.25; // más de 25% de cuadros de video perdidos = tirones
             let level = 0;
             try { level = Number(sessionStorage.getItem(PERF_KEY)) || 0; } catch (e) {}
 
@@ -1270,8 +1273,16 @@
                 }
             }
 
-            function measureFps(durationMs, done) {
+            function videoQuality() {
+                return typeof video.getVideoPlaybackQuality === 'function'
+                    ? video.getVideoPlaybackQuality() : null;
+            }
+
+            // Mide durante `durationMs` y entrega { fps, dropRatio } (o null si
+            // la pestaña se ocultó a mitad de la medición).
+            function measure(durationMs, done) {
                 let frames = 0, start = null, hidden = false;
+                const q0 = videoQuality();
                 const onVis = function () { if (document.hidden) hidden = true; };
                 document.addEventListener('visibilitychange', onVis);
                 function finish(fps) {
@@ -1282,7 +1293,17 @@
                     if (hidden) return finish(null);
                     if (start === null) start = t;
                     frames++;
-                    if (t - start >= durationMs) return finish((frames - 1) * 1000 / (t - start));
+                    if (t - start >= durationMs) {
+                        const fps = (frames - 1) * 1000 / (t - start);
+                        const q1 = videoQuality();
+                        let dropRatio = 0;
+                        if (q0 && q1) {
+                            const total = q1.totalVideoFrames - q0.totalVideoFrames;
+                            const dropped = q1.droppedVideoFrames - q0.droppedVideoFrames;
+                            if (total >= 30) dropRatio = dropped / total;   // muestra mínima para no dar falsos avisos
+                        }
+                        return finish({ fps: fps, dropRatio: dropRatio });
+                    }
                     requestAnimationFrame(tick);
                 }
                 requestAnimationFrame(tick);
@@ -1290,8 +1311,9 @@
 
             function checkPerformance() {
                 if (level >= 2 || failed || !wp.isConnected) return;
-                measureFps(3000, function (fps) {
-                    if (fps === null || fps >= LOW_FPS) return;   // pestaña oculta, o va bien
+                measure(3000, function (result) {
+                    if (result === null) return;                   // pestaña oculta: no se pudo medir
+                    if (result.fps >= LOW_FPS && result.dropRatio <= MAX_DROP_RATIO) return;   // va bien
                     setLevel(level + 1);
                     if (level >= 2) {
                         if (typeof showNotice === 'function') {
