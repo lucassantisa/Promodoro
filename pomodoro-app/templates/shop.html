@@ -287,6 +287,33 @@
             font-weight: 600;
         }
 
+        /* Objetos consumibles (de un solo uso), como el Restaurador de racha */
+        .consumable-preview {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: linear-gradient(135deg, rgba(249, 115, 22, 0.25), rgba(15, 23, 42, 0.55));
+        }
+        .consumable-preview .consumable-icon { font-size: 2.8rem; line-height: 1; }
+        .consumable-preview .category-badge { background: rgba(249, 115, 22, 0.2); color: #fdba74; }
+
+        .restorer-box { display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem; }
+        .restorer-stock { color: var(--text-muted); }
+        .restorer-stock strong { color: var(--text-main); }
+        .restorer-status {
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+        .restorer-status.available { border-color: #f97316; color: #fdba74; background: rgba(249, 115, 22, 0.08); }
+        .restorer-status.success { border-color: #22c55e; color: #4ade80; background: rgba(34, 197, 94, 0.08); }
+        [data-theme="light"] .restorer-status.available { color: #c2410c; }
+        [data-theme="light"] .restorer-status.success { color: #15803d; }
+
         .item-name { font-weight: 700; font-size: 1rem; }
         .item-desc { color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; flex-grow: 1; }
         .item-price { color: #eab308; font-weight: 600; font-size: 0.9rem; }
@@ -430,6 +457,11 @@
                            data-gif="{{ item.gif_url or '' }}"></video>
                     <span class="preview-play-hint">▶ Ver animación</span>
                 </div>
+                {% elif item.type == 'consumable' %}
+                <div class="item-preview consumable-preview">
+                    <span class="category-badge">Un solo uso</span>
+                    <span class="consumable-icon">🔥</span>
+                </div>
                 {% elif item.type == 'frame' %}
                 <div class="item-preview frame-preview"><img src="{{ item.image_url }}" alt="{{ item.name }}" loading="lazy" decoding="async"></div>
                 {% else %}
@@ -439,7 +471,20 @@
                 <div class="item-desc">{{ item.description }}</div>
                 <div class="item-price">{{ item.price }} pts</div>
 
-                {% if item.id in owned_ids %}
+                {% if item.type == 'consumable' %}
+                    <div class="restorer-box" id="restorer-box" data-price="{{ item.price }}" data-max-stock="{{ item.max_stock }}">
+                        <div class="restorer-stock">En tu inventario: <strong id="restorer-stock">{{ restorer_stock }}</strong> (máx. {{ item.max_stock }})</div>
+                        <div class="restorer-status" id="restorer-status">Revisando el estado de tu racha...</div>
+                    </div>
+                    {% if restorer_stock >= item.max_stock %}
+                        <button class="buy-btn owned" id="restorer-buy-btn" disabled>✅ Ya tienes uno</button>
+                    {% elif user.balance < item.price %}
+                        <button class="buy-btn locked" id="restorer-buy-btn" disabled>Te faltan {{ item.price - user.balance }} pts</button>
+                    {% else %}
+                        <button class="buy-btn" id="restorer-buy-btn" onclick="buyRestorer()">Comprar</button>
+                    {% endif %}
+                    <button class="buy-btn equip" id="restorer-use-btn" onclick="useRestorer()" disabled>Restaurar mi racha</button>
+                {% elif item.id in owned_ids %}
                     {% if item.type == 'banner' %}
                         {% if user.equipped_banner == item.id %}
                             <button class="buy-btn owned banner-toggle-btn" data-item-id="{{ item.id }}" onclick="equipItem(this)" disabled>✅ Equipado</button>
@@ -520,6 +565,7 @@
                     }
 
                     document.getElementById('balance-amount').textContent = data.new_balance;
+                    renderRestorerBuyButton();
 
                     if (isEquippable) {
                         // Pasa a formar parte del mismo grupo de botones
@@ -809,6 +855,181 @@
                 btn.onclick = () => unequipSound(category);
                 document.querySelector('.header-right').appendChild(btn);
             }
+        }
+
+        // --- Restaurador de racha (objeto de un solo uso) ---
+        // Se compra una vez, se guarda en el inventario y se gasta al usarlo.
+        // Solo se puede usar si ayer se perdió una racha (plazo de 24 h).
+        let restorerState = null;      // última respuesta de /streak/restore_status
+        let restorerStock = 0;
+        let restorerDeadline = null;   // ms: cuándo vence el plazo para usarlo
+        let restorerFlash = null;      // mensaje de éxito que se queda a la vista
+
+        function pluralDays(n) { return n === 1 ? '1 día' : n + ' días'; }
+
+        function formatTimeLeft(seconds) {
+            const totalMinutes = Math.floor(Math.max(0, seconds) / 60);
+            if (totalMinutes < 1) return 'menos de 1 min';
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            return h > 0 ? h + ' h ' + m + ' min' : m + ' min';
+        }
+
+        function describeRestorerStatus(status, stock, secondsLeft) {
+            if (!status || status.state === 'error') {
+                return { text: 'No se pudo revisar el estado de tu racha.', cls: '' };
+            }
+            if (status.state === 'available') {
+                let text = 'Perdiste tu racha de ' + pluralDays(status.lost_streak) + ' ayer. ' +
+                    'Puedes restaurarla hasta la medianoche (te quedan ' + formatTimeLeft(secondsLeft) + ').';
+                if (stock < 1) text += ' Compra un Restaurador para recuperarla.';
+                return { text: text, cls: 'available' };
+            }
+            if (status.state === 'expired') {
+                return {
+                    text: 'Tu racha de ' + pluralDays(status.lost_streak) + ' se perdió hace más de 24 h, así que ya no se puede restaurar.',
+                    cls: ''
+                };
+            }
+            return { text: 'Ahora mismo no tienes ninguna racha perdida que restaurar.', cls: '' };
+        }
+
+        function renderRestorerBuyButton() {
+            const box = document.getElementById('restorer-box');
+            const btn = document.getElementById('restorer-buy-btn');
+            if (!box || !btn) return;
+            const price = Number(box.dataset.price);
+            const maxStock = Number(box.dataset.maxStock);
+            const balance = Number(document.getElementById('balance-amount').textContent) || 0;
+
+            if (restorerStock >= maxStock) {
+                btn.className = 'buy-btn owned';
+                btn.textContent = '✅ Ya tienes uno';
+                btn.disabled = true;
+            } else if (balance < price) {
+                btn.className = 'buy-btn locked';
+                btn.textContent = 'Te faltan ' + (price - balance) + ' pts';
+                btn.disabled = true;
+            } else {
+                btn.className = 'buy-btn';
+                btn.textContent = 'Comprar';
+                btn.disabled = false;
+            }
+        }
+
+        function renderRestorer() {
+            const box = document.getElementById('restorer-box');
+            if (!box) return;
+            document.getElementById('restorer-stock').textContent = restorerStock;
+
+            const secondsLeft = restorerDeadline ? Math.round((restorerDeadline - Date.now()) / 1000) : 0;
+            const statusEl = document.getElementById('restorer-status');
+            if (restorerFlash) {
+                statusEl.textContent = restorerFlash;
+                statusEl.className = 'restorer-status success';
+            } else {
+                const described = describeRestorerStatus(restorerState, restorerStock, secondsLeft);
+                statusEl.textContent = described.text;
+                statusEl.className = 'restorer-status' + (described.cls ? ' ' + described.cls : '');
+            }
+
+            document.getElementById('restorer-use-btn').disabled =
+                !(restorerState && restorerState.state === 'available' && restorerStock > 0);
+            renderRestorerBuyButton();
+        }
+
+        function loadRestorerStatus() {
+            return fetch('/streak/restore_status?tz_offset=' + new Date().getTimezoneOffset())
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (data.error) throw new Error(data.error);
+                    restorerState = data;
+                    restorerStock = data.stock;
+                    restorerDeadline = data.state === 'available' ? Date.now() + data.seconds_left * 1000 : null;
+                    renderRestorer();
+                })
+                .catch(err => {
+                    console.error('Error al revisar la racha:', err);
+                    restorerState = { state: 'error' };
+                    renderRestorer();
+                });
+        }
+
+        function buyRestorer() {
+            const btn = document.getElementById('restorer-buy-btn');
+            btn.disabled = true;
+            btn.textContent = 'Comprando...';
+
+            fetch('/shop/buy/streak_restorer', { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo comprar el objeto.');
+                    } else {
+                        document.getElementById('balance-amount').textContent = data.new_balance;
+                        restorerStock = data.stock;
+                    }
+                    renderRestorer();
+                })
+                .catch(err => {
+                    console.error('Error al comprar:', err);
+                    renderRestorer();
+                });
+        }
+
+        function useRestorer() {
+            if (!confirm('¿Usar tu Restaurador de racha ahora? Es de un solo uso: se gastará.')) return;
+            const btn = document.getElementById('restorer-use-btn');
+            btn.disabled = true;
+            btn.textContent = 'Restaurando...';
+
+            fetch('/streak/restore?tz_offset=' + new Date().getTimezoneOffset(), { method: 'POST' })
+                .then(response => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    if (!data.success) {
+                        alert(data.error || 'No se pudo restaurar la racha.');
+                        return loadRestorerStatus();
+                    }
+                    restorerStock = data.stock;
+                    restorerFlash = '✅ ¡Racha restaurada! Tu racha ahora es de ' + pluralDays(data.streak) + '.';
+                    return loadRestorerStatus();
+                })
+                .catch(err => {
+                    console.error('Error al restaurar la racha:', err);
+                    return loadRestorerStatus();
+                })
+                .finally(() => { btn.textContent = 'Restaurar mi racha'; });
+        }
+
+        if (document.getElementById('restorer-box')) {
+            restorerStock = Number(document.getElementById('restorer-stock').textContent) || 0;
+            loadRestorerStatus();
+            // Mantiene al día el "te quedan X h" y detecta cuándo vence el plazo.
+            setInterval(function () {
+                if (restorerDeadline && Date.now() >= restorerDeadline) loadRestorerStatus();
+                else renderRestorer();
+            }, 30000);
         }
 
         // --- Vistas previas de fondos animados ---

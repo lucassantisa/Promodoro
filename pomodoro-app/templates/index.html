@@ -777,6 +777,79 @@
             .stats-modal { padding: 18px; }
         }
 
+        /* ===== Modo "lock in" =====
+           Pantalla completa en negro con solo el reloj en blanco y un
+           botón casi invisible (esquina inferior derecha) para salir.
+           Se arma como una capa por encima de todo (.lock-in-overlay) y,
+           mientras está activo (body.lock-in), se oculta el fondo, las
+           luces difusas, el panel completo y los avisos. */
+        .lock-in-btn {
+            width: 100%;
+            margin-top: 12px;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 500;
+            padding: 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .lock-in-btn:hover { background: rgba(var(--overlay-rgb), 0.05); border-color: var(--accent); }
+
+        .lock-in-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #000;
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        body.lock-in { background-color: #000 !important; overflow: hidden; }
+        body.lock-in .lock-in-overlay { display: flex; }
+        body.lock-in .wallpaper,
+        body.lock-in .ambient-light,
+        body.lock-in .app-container,
+        body.lock-in .toast-container,
+        body.lock-in .search-overlay,
+        body.lock-in .stats-overlay { display: none !important; }
+
+        .lock-in-time {
+            font-family: 'Space Mono', monospace;
+            font-weight: 700;
+            font-size: min(22vw, 40vh, 18rem);
+            line-height: 1;
+            color: #fff;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .lock-in-time.font-orbitron {
+            font-family: 'Orbitron', monospace;
+            font-weight: 900;
+            letter-spacing: 4px;
+            font-size: min(17vw, 40vh, 14rem);
+        }
+
+        .lock-in-exit {
+            position: absolute;
+            right: 16px;
+            bottom: 16px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 0.85rem;
+            cursor: pointer;
+            opacity: 0.1;
+            transition: opacity 0.25s ease;
+        }
+        .lock-in-exit:hover, .lock-in-exit:focus-visible { opacity: 0.6; outline: none; }
+
         /* Avisos no bloqueantes (fin de bloque / fin de descanso) */
         .toast-container {
             position: fixed;
@@ -1349,6 +1422,7 @@
 
             // Si el video quedó en pausa, se reintenta con el primer gesto.
             function retryPlay() {
+                if (document.body.classList.contains('lock-in')) return;
                 if (!failed && level < 2 && video.paused && wp.isConnected) {
                     video.play().catch(function () {});
                 }
@@ -1360,6 +1434,7 @@
             // Con la pestaña oculta no tiene sentido decodificar video.
             document.addEventListener('visibilitychange', function () {
                 if (!wp.isConnected || failed || level >= 2) return;
+                if (document.body.classList.contains('lock-in')) return;
                 if (document.hidden) video.pause();
                 else video.play().catch(function () {});
             });
@@ -1373,6 +1448,12 @@
     <audio id="bg-audio" loop data-current-track="lofi" src="{{ tracks.lofi }}"></audio>
 
     <div class="toast-container" id="toast-container"></div>
+
+    <!-- Modo lock in: solo el reloj en blanco sobre negro y un botón casi invisible para salir -->
+    <div class="lock-in-overlay" id="lock-in-overlay">
+        <div class="lock-in-time {{ timer_font_class }}" id="lock-in-time">25:00</div>
+        <button class="lock-in-exit" id="lock-in-exit-btn" title="Salir del modo lock in" aria-label="Salir del modo lock in"><i class="fas fa-lock-open"></i></button>
+    </div>
 
     <div class="app-container">
 
@@ -1466,6 +1547,7 @@
             </div>
             <button class="redeem-btn" id="redeem-points-btn" onclick="redeemPoints()">Terminar bloque de estudio ahora ⏹️</button>
             <button class="action-btn skip-btn hidden" id="skip-break-btn" onclick="skipBreak()">Saltar descanso ⏭️</button>
+            <button class="lock-in-btn" id="lock-in-btn" title="Pantalla negra solo con el reloj, sin música ni distracciones"><i class="fas fa-lock"></i> Modo lock in</button>
         </div>
 
         <!-- Columna derecha: carpetas de estudio y fechas de prueba -->
@@ -1770,6 +1852,8 @@
         }
 
         const timerDisplay = document.getElementById('timer');
+        const lockInTime = document.getElementById('lock-in-time');   // reloj del modo lock in
+        let lockInActive = false;
         const modeText = document.getElementById('mode-text');
         const scoreDisplay = document.getElementById('score');
         const studyTimeInput = document.getElementById('study-time');
@@ -2322,12 +2406,14 @@
             let minutes = Math.floor(timeLeft / 60);
             let seconds = timeLeft % 60;
             timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            lockInTime.textContent = timerDisplay.textContent;
         }
 
         function startTimer() {
             if (isRunning) return;
             getAudioContext(); // Habilita el audio de los avisos sonoros (requiere gesto del usuario)
-            if (audio.paused) { musicBtn.click(); }
+            // En modo lock in no hay música (ni siquiera cuando arranca solo el descanso)
+            if (audio.paused && !lockInActive) { musicBtn.click(); }
 
             isRunning = true;
 
@@ -2935,6 +3021,53 @@
                     .catch(err => console.error('Error al buscar usuarios:', err));
             }, 300);
         });
+
+        // --- Modo lock in ---
+        // Pantalla negra con solo el reloj. Mientras está activo no suena la
+        // música; al salir vuelve a sonar solo si estaba sonando antes. El
+        // bloque de estudio/descanso sigue corriendo normal (y los puntos se
+        // acreditan igual); los avisos en pantalla se ocultan, pero el pitido
+        // de fin de bloque se mantiene para que te enteres del cambio.
+        const lockInBtn = document.getElementById('lock-in-btn');
+        const lockInExitBtn = document.getElementById('lock-in-exit-btn');
+        const wallpaperVideo = document.getElementById('wallpaper-video');   // puede no existir
+        let lockInMusicWasPlaying = false;
+        let lockInWallpaperWasPlaying = false;
+
+        function enterLockIn() {
+            if (lockInActive) return;
+            lockInActive = true;
+
+            lockInMusicWasPlaying = !audio.paused;
+            if (lockInMusicWasPlaying) audio.pause();
+
+            // El fondo animado queda oculto: se pausa para no gastar GPU detrás.
+            lockInWallpaperWasPlaying = !!wallpaperVideo && !wallpaperVideo.paused;
+            if (lockInWallpaperWasPlaying) wallpaperVideo.pause();
+
+            document.body.classList.add('lock-in');
+            colorPickerPanel.classList.add('hidden');
+
+            // Sin un bloque corriendo, el reloj quedaría quieto y sin forma de
+            // iniciarlo (no hay botones en este modo), así que arranca solo.
+            if (!isRunning) {
+                if (timeLeft <= 0) resetTimer();
+                startTimer();
+            }
+            updateDisplay();
+        }
+
+        function exitLockIn() {
+            if (!lockInActive) return;
+            lockInActive = false;
+            document.body.classList.remove('lock-in');
+
+            if (lockInWallpaperWasPlaying && wallpaperVideo) wallpaperVideo.play().catch(() => {});
+            if (lockInMusicWasPlaying) attemptPlay();
+        }
+
+        lockInBtn.addEventListener('click', enterLockIn);
+        lockInExitBtn.addEventListener('click', exitLockIn);
 
         updateDisplay();
         loadFolders();

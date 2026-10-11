@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import event
+from sqlalchemy import event, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -378,8 +379,22 @@ SHOP_ITEMS = {
         'type': 'sound',
         'category': 'piano',
         'audio_url': 'https://files.catbox.moe/s899is.mp3'
+    },
+    # Objeto CONSUMIBLE (de un solo uso): no queda en Purchase (que solo deja
+    # comprar cada cosa una vez) sino como una cantidad en la columna
+    # 'stock_field' del usuario. Se puede volver a comprar cuando se gasta.
+    'streak_restorer': {
+        'id': 'streak_restorer',
+        'name': 'Restaurador de racha',
+        'description': 'Recupera tu racha si ayer no estudiaste. De un solo uso y solo sirve dentro de las 24 h siguientes a perderla: si pasan dos días, ya no se puede.',
+        'price': 2000,
+        'type': 'consumable',
+        'stock_field': 'streak_restorers',  # columna de User con la cantidad que tiene
+        'max_stock': 1                      # cuántos puede tener sin usar a la vez
     }
 }
+
+STREAK_RESTORER_ID = 'streak_restorer'
 
 # Helper para usar en las plantillas (ej. listas de seguidores/seguidos en
 # profile.html), donde solo tenemos el id del objeto equipado por cada
@@ -556,6 +571,22 @@ class Purchase(db.Model):
     )
 
 
+class StreakRepair(db.Model):
+    """Día cuya racha se salvó con un Restaurador de racha. La racha se calcula
+    a partir de las sesiones de estudio (ver compute_streaks_for_users), así que
+    no se inventan minutos: este día simplemente actúa de PUENTE (no suma un día a
+    la racha, pero tampoco la corta). 'repaired_date' es la fecha LOCAL del
+    usuario, igual que las fechas con las que se cuentan los días de estudio."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    repaired_date = db.Column(db.Date, nullable=False)
+    used_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'repaired_date', name='uix_user_streak_repair'),
+    )
+
+
 class AchievementClaim(db.Model):
     """Logro que un usuario ya canjeó por sus puntos. La restricción única
     de abajo es lo que garantiza que un mismo logro no se pueda canjear
@@ -581,6 +612,7 @@ class User(db.Model):
     equipped_frame = db.Column(db.String(50), nullable=True)  # id del marco activo en la foto de perfil
     equipped_font = db.Column(db.String(50), nullable=True)  # id de la tipografía activa en el temporizador
     equipped_wallpaper = db.Column(db.String(50), nullable=True)  # id del fondo animado activo en la pantalla principal (None = fondo predeterminado)
+    streak_restorers = db.Column(db.Integer, default=0)  # Restauradores de racha comprados y sin usar (consumible)
     # Canción comprada equipada en cada categoría del reproductor (una por
     # categoría). None = se usa la pista gratuita de siempre para esa
     # categoría (ver DEFAULT_TRACKS / get_user_tracks).
@@ -620,6 +652,14 @@ class User(db.Model):
     # --- Objetos comprados en la tienda ---
     purchases = db.relationship(
         'Purchase',
+        backref='user',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+
+    # --- Días de racha salvados con un Restaurador de racha ---
+    streak_repairs = db.relationship(
+        'StreakRepair',
         backref='user',
         lazy='dynamic',
         cascade='all, delete-orphan'
@@ -1042,8 +1082,43 @@ def shop():
 
     return render_template(
         'shop.html', user=user, items=items, owned_ids=owned_ids,
-        equipped_sounds=equipped_sounds, sound_labels=SOUND_CATEGORY_LABELS
+        equipped_sounds=equipped_sounds, sound_labels=SOUND_CATEGORY_LABELS,
+        restorer_stock=user.streak_restorers or 0
     )
+
+
+def buy_consumable(user, item):
+    """Compra de un objeto de un solo uso (ver 'stock_field' en SHOP_ITEMS). Se
+    guarda como cantidad en el usuario, no en Purchase, así que se puede volver a
+    comprar cuando se gasta el que se tenía. Hay un tope de 'max_stock' sin usar."""
+    column = getattr(User, item['stock_field'])
+    if (getattr(user, item['stock_field']) or 0) >= item['max_stock']:
+        return jsonify({"error": "Ya tienes uno sin usar. Cuando lo uses podrás comprar otro."}), 400
+    if user.balance < item['price']:
+        return jsonify({"error": "No tienes suficientes puntos para este objeto"}), 400
+
+    # Un solo UPDATE con las condiciones adentro: si llegan dos compras casi al
+    # mismo tiempo, la segunda ya no cumple y no se cobra dos veces.
+    stock = func.coalesce(column, 0)
+    bought = User.query.filter(
+        User.id == user.id,
+        User.balance >= item['price'],
+        stock < item['max_stock']
+    ).update(
+        {User.balance: User.balance - item['price'], column: stock + 1},
+        synchronize_session=False
+    )
+    if not bought:
+        db.session.rollback()
+        return jsonify({"error": "No se pudo completar la compra. Intenta de nuevo."}), 409
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "new_balance": user.balance,
+        "stock": getattr(user, item['stock_field']) or 0,
+        "max_stock": item['max_stock']
+    })
 
 
 @app.route('/shop/buy/<item_id>', methods=['POST'])
@@ -1059,6 +1134,9 @@ def buy_item(item_id):
     item = SHOP_ITEMS.get(item_id)
     if item is None:
         return jsonify({"error": "Objeto no encontrado"}), 404
+
+    if item['type'] == 'consumable':
+        return buy_consumable(user, item)
 
     if user.owns_item(item_id):
         return jsonify({"error": "Ya tienes este objeto"}), 400
@@ -1627,15 +1705,15 @@ def _months_back(base, n):
     return y, m + 1
 
 
-def compute_streaks_for_users(user_ids, offset):
-    """Calcula la racha de días consecutivos (60+ min de estudio) para varios
-    usuarios a la vez, con UNA sola consulta a la base de datos en vez de
-    una por usuario (se usa en el top de usuarios, que puede mostrar hasta
-    50 a la vez). Misma lógica que streak_info(), pero en lote."""
-    if not user_ids:
-        return {}
+STREAK_DAY_MINUTES = 60  # minutos de estudio que debe tener un día para contar en la racha
 
-    today_local = (datetime.utcnow() - timedelta(minutes=offset)).date()
+
+def _load_streak_data(user_ids, offset, now_utc=None):
+    """Carga lo necesario para calcular rachas de varios usuarios con DOS
+    consultas en total: minutos de estudio por día local y días reparados con
+    un Restaurador de racha. Devuelve (hoy_local, minutos_por_dia, reparados)."""
+    now_utc = now_utc or datetime.utcnow()
+    today_local = (now_utc - timedelta(minutes=offset)).date()
     window_start_local = datetime(today_local.year, today_local.month, today_local.day) - timedelta(days=400)
     window_start_utc = window_start_local + timedelta(minutes=offset)
 
@@ -1649,19 +1727,98 @@ def compute_streaks_for_users(user_ids, offset):
         local_dt = s.completed_at - timedelta(minutes=offset)
         daily_minutes_by_user[s.user_id][local_dt.date()] += s.minutes
 
+    repaired_by_user = defaultdict(set)
+    repairs = StreakRepair.query.filter(
+        StreakRepair.user_id.in_(user_ids),
+        StreakRepair.repaired_date >= window_start_local.date()
+    ).all()
+    for r in repairs:
+        repaired_by_user[r.user_id].add(r.repaired_date)
+
+    return today_local, daily_minutes_by_user, repaired_by_user
+
+
+def _streak_chain(cursor, daily_minutes, repaired):
+    """Días seguidos hacia atrás desde 'cursor' (incluido). Un día cuenta si
+    tuvo 60+ min de estudio. Un día reparado con un Restaurador de racha NO suma,
+    pero tampoco corta la cadena (es un puente)."""
+    length = 0
+    while True:
+        if daily_minutes.get(cursor, 0) >= STREAK_DAY_MINUTES:
+            length += 1
+        elif cursor not in repaired:
+            return length
+        cursor -= timedelta(days=1)
+
+
+def compute_streaks_for_users(user_ids, offset):
+    """Calcula la racha de días consecutivos (60+ min de estudio) para varios
+    usuarios a la vez, con pocas consultas a la base de datos en vez de
+    una por usuario (se usa en el top de usuarios, que puede mostrar hasta
+    50 a la vez). Es la única fuente de verdad de la racha: /streak_info, el
+    top y los logros pasan todos por acá. Si el día de hoy todavía no llega a
+    60 min no se rompe la racha (el día no ha terminado) y se cuenta desde ayer."""
+    if not user_ids:
+        return {}
+
+    today_local, daily_minutes_by_user, repaired_by_user = _load_streak_data(user_ids, offset)
+
     streaks = {}
     for uid in user_ids:
         daily_minutes = daily_minutes_by_user.get(uid, {})
+        repaired = repaired_by_user.get(uid, set())
         cursor = today_local
-        if daily_minutes.get(cursor, 0) < 60:
+        if daily_minutes.get(cursor, 0) < STREAK_DAY_MINUTES:
             cursor -= timedelta(days=1)
-        streak = 0
-        while daily_minutes.get(cursor, 0) >= 60:
-            streak += 1
-            cursor -= timedelta(days=1)
-        streaks[uid] = streak
+        streaks[uid] = _streak_chain(cursor, daily_minutes, repaired)
 
     return streaks
+
+
+def get_streak_restore_state(user, offset):
+    """Dice si el Restaurador de racha se puede usar AHORA, en hora local.
+
+    La racha se pierde a las 00:00 del día siguiente al que no se estudió, y el
+    plazo para restaurarla dura 24 h desde ese momento: o sea, solo se puede
+    reparar AYER, y solo hoy (mañana ya serían dos días y no se puede).
+
+    Devuelve un dict con 'state':
+      'available' -> ayer se perdió una racha y todavía hay plazo
+      'expired'   -> la racha se perdió hace más de 24 h
+      'none'      -> no hay nada que restaurar (ayer se estudió, ya se
+                     restauró, o no había racha)
+    más 'lost_streak' (días que tenía la racha perdida), 'seconds_left' (hasta
+    que vence el plazo) y 'repair_date' (el día que se repararía)."""
+    now_utc = datetime.utcnow()
+    today_local, daily_by_user, repaired_by_user = _load_streak_data([user.id], offset, now_utc)
+    daily_minutes = daily_by_user.get(user.id, {})
+    repaired = repaired_by_user.get(user.id, set())
+    one_day = timedelta(days=1)
+
+    result = {"state": "none", "lost_streak": 0, "seconds_left": 0, "repair_date": None}
+
+    missed_day = today_local - one_day
+    if daily_minutes.get(missed_day, 0) >= STREAK_DAY_MINUTES or missed_day in repaired:
+        return result  # ayer se estudió (o ya se restauró): la racha sigue en pie
+
+    lost_streak = _streak_chain(missed_day - one_day, daily_minutes, repaired)
+    if lost_streak >= 1:
+        now_local = now_utc - timedelta(minutes=offset)
+        next_midnight = datetime.combine(today_local + one_day, datetime.min.time())
+        result.update(
+            state="available",
+            lost_streak=lost_streak,
+            repair_date=missed_day,
+            seconds_left=max(0, int((next_midnight - now_local).total_seconds()))
+        )
+        return result
+
+    # Ayer no se estudió y anteayer tampoco: si antes había una racha, se perdió
+    # hace más de 24 h y ya no hay forma de recuperarla.
+    older_streak = _streak_chain(missed_day - 2 * one_day, daily_minutes, repaired)
+    if older_streak >= 1:
+        result.update(state="expired", lost_streak=older_streak)
+    return result
 
 
 def get_tz_offset():
@@ -1849,6 +2006,79 @@ def streak_info():
     return jsonify({"streak": streak})
 
 
+@app.route('/streak/restore_status')
+def streak_restore_status():
+    """Estado del Restaurador de racha para la tienda: cuántos tiene el usuario
+    y si lo puede usar ahora (ver get_streak_restore_state)."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    state = get_streak_restore_state(user, get_tz_offset())
+    return jsonify({
+        "state": state["state"],
+        "lost_streak": state["lost_streak"],
+        "seconds_left": state["seconds_left"],
+        "stock": user.streak_restorers or 0,
+        "max_stock": SHOP_ITEMS[STREAK_RESTORER_ID]['max_stock']
+    })
+
+
+@app.route('/streak/restore', methods=['POST'])
+def restore_streak():
+    """Gasta un Restaurador de racha para salvar el día de ayer. Solo funciona
+    si hay una racha perdida dentro del plazo de 24 h; si no, no se gasta nada."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    if (user.streak_restorers or 0) < 1:
+        return jsonify({"error": "No tienes ningún Restaurador de racha. Puedes comprar uno en la tienda."}), 400
+
+    offset = get_tz_offset()
+    state = get_streak_restore_state(user, offset)
+    if state["state"] == "expired":
+        return jsonify({"error": "Tu racha se perdió hace más de 24 horas, así que ya no se puede restaurar."}), 400
+    if state["state"] != "available":
+        return jsonify({"error": "No hay ninguna racha perdida que restaurar."}), 400
+
+    # Se gasta el restaurador (con la condición adentro del UPDATE, para que no
+    # se pueda gastar dos veces con dos clics seguidos) y se registra el día
+    # salvado. Si el día ya estaba reparado, la restricción única lo impide.
+    spent = User.query.filter(
+        User.id == user.id,
+        func.coalesce(User.streak_restorers, 0) > 0
+    ).update(
+        {User.streak_restorers: func.coalesce(User.streak_restorers, 0) - 1},
+        synchronize_session=False
+    )
+    if not spent:
+        db.session.rollback()
+        return jsonify({"error": "No tienes ningún Restaurador de racha. Puedes comprar uno en la tienda."}), 400
+
+    db.session.add(StreakRepair(user_id=user.id, repaired_date=state["repair_date"]))
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "Esa racha ya fue restaurada."}), 409
+
+    streak = compute_streaks_for_users([user.id], offset)[user.id]
+    return jsonify({
+        "success": True,
+        "streak": streak,
+        "stock": user.streak_restorers or 0
+    })
+
+
 @app.route('/search_users')
 def search_users():
     if 'user_id' not in session:
@@ -1950,6 +2180,10 @@ with app.app_context():
             if sound_column not in existing_columns:
                 db.session.execute(db.text(f'ALTER TABLE user ADD COLUMN {sound_column} VARCHAR(50)'))
                 db.session.commit()
+
+        if 'streak_restorers' not in existing_columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN streak_restorers INTEGER DEFAULT 0'))
+            db.session.commit()
 
         if 'google_ical_url' not in existing_columns:
             db.session.execute(db.text('ALTER TABLE user ADD COLUMN google_ical_url VARCHAR(500)'))
