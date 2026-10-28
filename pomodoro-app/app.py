@@ -549,6 +549,26 @@ class ExamDate(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class Task(db.Model):
+    """Tarea diaria del usuario (la lista 'Tareas' de la pantalla principal).
+    'task_date' es la fecha LOCAL del usuario (igual que las demás fechas de
+    'hoy' de la app, ver get_tz_offset), así cada día arranca con su propia
+    lista. Las pendientes de días anteriores NO se arrastran: quedan guardadas
+    con su fecha y simplemente no se consultan. Completar una tarea no da
+    puntos ni pomotates (por ahora)."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    task_date = db.Column(db.Date, nullable=False)
+    done = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Casi todas las consultas son "las tareas de este usuario en este día"
+    __table_args__ = (
+        db.Index('ix_task_user_date', 'user_id', 'task_date'),
+    )
+
+
 class StudySession(db.Model):
     """Registro de cada bloque de estudio completado (con su fecha y carpeta),
     usado para armar el gráfico de productividad por día/semana/mes."""
@@ -2141,6 +2161,124 @@ def leaderboard():
             for u in top_users
         ]
     })
+
+# --- Tareas del día ---
+# Lista de tareas diarias de cada usuario. "Hoy" se calcula en la hora local
+# del usuario (?tz_offset=, ver get_tz_offset), igual que en estadísticas y
+# calendario, y cada tarea queda guardada con la fecha del día en que se creó.
+
+def get_local_today():
+    """Fecha de HOY en la hora local del usuario (según ?tz_offset=)."""
+    # JS entrega offsets entre -840 y +720 minutos; se acota para que un valor
+    # absurdo en la URL no reviente el cálculo de la fecha con un error 500.
+    offset = max(-840, min(720, get_tz_offset()))
+    return (datetime.utcnow() - timedelta(minutes=offset)).date()
+
+
+def serialize_task(task):
+    return {"id": task.id, "title": task.title, "done": task.done}
+
+
+@app.route('/tasks', methods=['GET'])
+def get_tasks():
+    """Tareas de HOY (hora local del usuario). Las de días anteriores no se
+    incluyen, así que cada día empieza con una lista limpia."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    today = get_local_today()
+    tasks = Task.query.filter_by(user_id=user.id, task_date=today).order_by(Task.id.asc()).all()
+    return jsonify({
+        "date": today.isoformat(),
+        "tasks": [serialize_task(t) for t in tasks]
+    })
+
+
+@app.route('/tasks', methods=['POST'])
+def create_task():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    # silent=True: si el cuerpo no es JSON válido se trata como vacío (400 más
+    # abajo) en vez de que Flask responda con una página de error en HTML.
+    data = request.get_json(silent=True)
+    title = data.get('title') if isinstance(data, dict) else None
+    title = title.strip() if isinstance(title, str) else ''
+
+    if not title:
+        return jsonify({"error": "La tarea no puede estar vacía."}), 400
+    if len(title) > 100:
+        return jsonify({"error": "La tarea es demasiado larga (máx. 100 caracteres)."}), 400
+
+    task = Task(user_id=user.id, title=title, task_date=get_local_today())
+    db.session.add(task)
+    db.session.commit()
+
+    return jsonify({"success": True, "task": serialize_task(task)})
+
+
+@app.route('/tasks/<int:task_id>', methods=['PATCH'])
+def update_task(task_id):
+    """Marca o desmarca una tarea como hecha. Si el cuerpo trae "done"
+    (true/false) se usa ese valor; si no trae nada, se invierte el estado
+    actual. Pasar el valor explícito evita desincronizarse si se hace clic
+    muy rápido dos veces. No da puntos ni pomotates."""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    task = Task.query.get(task_id)
+    if task is None or task.user_id != user.id:
+        return jsonify({"error": "Tarea no encontrada"}), 404
+
+    data = request.get_json(silent=True)
+    done = data.get('done') if isinstance(data, dict) else None
+
+    if done is None:
+        task.done = not task.done
+    elif isinstance(done, bool):
+        task.done = done
+    else:
+        return jsonify({"error": "Valor inválido para 'done'."}), 400
+
+    db.session.commit()
+
+    return jsonify({"success": True, "task": serialize_task(task)})
+
+
+@app.route('/tasks/<int:task_id>', methods=['DELETE'])
+def delete_task(task_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    user = User.query.get(session['user_id'])
+    if user is None:
+        session.clear()
+        return jsonify({"error": "Sesión inválida. Vuelve a iniciar sesión."}), 401
+
+    task = Task.query.get(task_id)
+    if task is None or task.user_id != user.id:
+        return jsonify({"error": "Tarea no encontrada"}), 404
+
+    db.session.delete(task)
+    db.session.commit()
+
+    return jsonify({"success": True})
+
 
 with app.app_context():
     db.create_all()

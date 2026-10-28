@@ -667,6 +667,111 @@
         #confirm-new-calendar:hover, #cancel-new-calendar:hover { background: rgba(var(--overlay-rgb), 0.1); }
         .calendar-hint { color: var(--text-muted); font-size: 0.7rem; line-height: 1.4; }
 
+        /* --- Tareas del día ---
+           Reutiliza las clases de "Fechas de prueba" (.exam-section, .exam-header,
+           .exam-icon-btn, .exam-body, .exam-list, .exam-item, .exam-empty,
+           .exam-item-delete, .exam-item-badge). Acá solo va lo propio de las
+           tareas: checkbox, barra de progreso y el campo para escribir. */
+
+        /* Minimizada, el contenido sale del orden de Tab (visibility se aplica
+           recién al terminar la animación de cierre) */
+        .task-section.collapsed .exam-body {
+            visibility: hidden;
+            transition: max-height 0.35s ease, opacity 0.25s ease, visibility 0s linear 0.35s;
+        }
+
+        /* Contador "2/5" junto al título (se ve aunque la sección esté minimizada) */
+        .task-count-badge { padding: 2px 8px; font-size: 0.7rem; }
+        .task-count-badge.complete { background: rgba(74, 222, 128, 0.16); color: #4ade80; }
+        [data-theme="light"] .task-count-badge.complete { background: rgba(34, 197, 94, 0.16); color: #15803d; }
+
+        .task-progress { margin-bottom: 10px; }
+        .task-progress-text { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
+        .task-progress-bar { height: 6px; border-radius: 6px; background: rgba(var(--overlay-rgb), 0.08); overflow: hidden; }
+        .task-progress-fill {
+            height: 100%;
+            width: 0;
+            border-radius: 6px;
+            background: var(--accent);
+            transition: width 0.35s ease, background-color 0.35s ease;
+        }
+        .task-progress-fill.complete { background: #4ade80; }
+        [data-theme="light"] .task-progress-fill.complete { background: #22c55e; }
+
+        .task-list { max-height: 220px; }
+
+        /* Cada tarea es un <label> con un checkbox real (accesible con teclado)
+           escondido; la cajita que se ve es el <span class="task-box"> */
+        .task-label {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            cursor: pointer;
+        }
+        .task-check { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+        .task-box {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 6px;
+            border: 1.5px solid var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.68rem;
+            color: transparent;
+            transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+        .task-box i { transform: scale(0.5); transition: transform 0.15s ease; }
+        .task-label:hover .task-box { border-color: var(--accent); }
+        .task-check:checked + .task-box { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .task-check:checked + .task-box i { transform: scale(1); }
+        .task-check:focus-visible + .task-box { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        /* Texto: puede ocupar varias líneas (hasta 100 caracteres) */
+        .task-text {
+            min-width: 0;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            line-height: 1.3;
+            transition: opacity 0.2s ease;
+        }
+        /* Hecha: tachada y atenuada */
+        .task-check:checked ~ .task-text { text-decoration: line-through; opacity: 0.5; }
+
+        /* El botón de borrar es un <button> (para poder usarlo con teclado) con el look de .exam-item-delete */
+        button.task-delete { background: none; border: none; flex-shrink: 0; line-height: 1; }
+        button.task-delete:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; opacity: 1; }
+
+        /* Campo para escribir una tarea nueva (mismo look que los campos de Fechas de prueba) */
+        .new-task-input { display: flex; gap: 6px; margin-top: 10px; }
+        #new-task-title {
+            flex: 1;
+            min-width: 0;
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 0.8rem;
+        }
+        #new-task-title:focus { outline: none; border-color: var(--accent); }
+        #confirm-new-task {
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid var(--border-color);
+            color: #4ade80;
+            width: 36px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        #confirm-new-task:hover { background: rgba(var(--overlay-rgb), 0.1); }
+
         .content-area { display: flex; flex-direction: column; align-items: center; margin-bottom: 25px; width: 100%; }
 
         .main-display {
@@ -1550,7 +1655,7 @@
             <button class="lock-in-btn" id="lock-in-btn" title="Pantalla negra solo con el reloj, sin música ni distracciones"><i class="fas fa-lock"></i> Modo lock in</button>
         </div>
 
-        <!-- Columna derecha: carpetas de estudio y fechas de prueba -->
+        <!-- Columna derecha: carpetas de estudio, fechas de prueba y tareas -->
         <div class="aside-column">
             <!-- Carpetas de estudio (puntos por ramo) -->
             <div class="folders-section">
@@ -1598,6 +1703,32 @@
                             <button id="cancel-new-calendar" title="Cancelar"><i class="fas fa-times"></i></button>
                         </div>
                         <p class="calendar-hint">En Google Calendar: Configuración → tu calendario → "Dirección secreta en formato iCal". Pégala aquí una sola vez y tus fechas se van a mantener sincronizadas solas.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tareas del día: lista propia de cada día (hora local), sin arrastrar pendientes -->
+            <div class="exam-section task-section" id="task-section">
+                <div class="exam-header">
+                    <span class="exam-title">✅ Tareas <span class="exam-item-badge task-count-badge hidden" id="task-count-badge"></span></span>
+                    <div class="exam-header-actions">
+                        <button class="exam-icon-btn" id="add-task-btn" title="Agregar tarea" aria-label="Agregar tarea">+</button>
+                        <button class="exam-icon-btn collapse-btn" id="toggle-task-btn" title="Minimizar/Mostrar" aria-label="Minimizar o mostrar tareas">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="exam-body" id="task-body">
+                    <div class="task-progress hidden" id="task-progress">
+                        <span class="task-progress-text" id="task-progress-text"></span>
+                        <div class="task-progress-bar" id="task-progress-bar" role="progressbar" aria-label="Progreso de tareas de hoy" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div class="task-progress-fill" id="task-progress-fill"></div>
+                        </div>
+                    </div>
+                    <div class="exam-list task-list" id="task-list"></div>
+                    <div class="new-task-input" id="new-task-input">
+                        <input type="text" id="new-task-title" placeholder="Ej: Repasar el capítulo 3" maxlength="100" autocomplete="off" aria-label="Nueva tarea">
+                        <button id="confirm-new-task" title="Agregar tarea" aria-label="Agregar tarea"><i class="fas fa-plus"></i></button>
                     </div>
                 </div>
             </div>
@@ -2387,6 +2518,224 @@
                 .catch(err => console.error('Error al desconectar el calendario:', err));
         }
 
+        // --- Tareas del día ---
+        // Cada día tiene su propia lista: el servidor entrega solo las tareas de
+        // HOY según la hora local del navegador (?tz_offset=, igual que en las
+        // estadísticas y el calendario). Las pendientes de días anteriores NO
+        // pasan al día siguiente. Completar una tarea no da puntos ni pomotates.
+        let tasks = [];
+        let tasksLoadedOn = null; // día local (YYYY-MM-DD) en que se cargó la lista: sirve para detectar el cambio de día
+        let taskLoadSeq = 0;      // numera las cargas para descartar respuestas viejas que lleguen desordenadas
+
+        const taskSection = document.getElementById('task-section');
+        const taskList = document.getElementById('task-list');
+        const addTaskBtn = document.getElementById('add-task-btn');
+        const toggleTaskBtn = document.getElementById('toggle-task-btn');
+        const taskCountBadge = document.getElementById('task-count-badge');
+        const taskProgress = document.getElementById('task-progress');
+        const taskProgressText = document.getElementById('task-progress-text');
+        const taskProgressBar = document.getElementById('task-progress-bar');
+        const taskProgressFill = document.getElementById('task-progress-fill');
+        const newTaskInput = document.getElementById('new-task-title');
+        const confirmNewTaskBtn = document.getElementById('confirm-new-task');
+
+        // --- Sección minimizable (el estado se recuerda en localStorage) ---
+        function applyTaskCollapsed(collapsed) {
+            taskSection.classList.toggle('collapsed', collapsed);
+            toggleTaskBtn.setAttribute('aria-expanded', String(!collapsed));
+        }
+        applyTaskCollapsed(localStorage.getItem('taskSectionCollapsed') === 'true');
+
+        toggleTaskBtn.addEventListener('click', () => {
+            const collapsed = !taskSection.classList.contains('collapsed');
+            applyTaskCollapsed(collapsed);
+            localStorage.setItem('taskSectionCollapsed', collapsed);
+        });
+
+        // Pide algo al servidor y devuelve el JSON. Si la sesión venció (401)
+        // manda a /login y devuelve null, igual que el resto de la app.
+        function taskRequest(url, options) {
+            return fetch(url, options).then(response => {
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return null;
+                }
+                return response.json();
+            });
+        }
+
+        function loadTasks(scrollToEnd = false) {
+            const seq = ++taskLoadSeq;
+            const today = localDateStr();
+            taskRequest(`/tasks?tz_offset=${new Date().getTimezoneOffset()}`)
+                .then(data => {
+                    // Si salió una carga más nueva mientras esta viajaba, esta ya quedó vieja
+                    if (!data || seq !== taskLoadSeq || !Array.isArray(data.tasks)) return;
+                    tasks = data.tasks;
+                    tasksLoadedOn = today;
+                    renderTasks();
+                    // Al agregar una tarea nueva, que se vea aunque la lista tenga scroll
+                    if (scrollToEnd) taskList.scrollTop = taskList.scrollHeight;
+                })
+                .catch(err => console.error('Error al cargar las tareas:', err));
+        }
+
+        function updateTaskProgress() {
+            const total = tasks.length;
+            const done = tasks.filter(t => t.done).length;
+
+            taskProgress.classList.toggle('hidden', total === 0);
+            taskCountBadge.classList.toggle('hidden', total === 0);
+            if (total === 0) return;
+
+            const pct = Math.round((done / total) * 100);
+            const text = `${done} de ${total} ${total === 1 ? 'completada' : 'completadas'}`;
+            const allDone = done === total;
+
+            taskProgressText.textContent = text;
+            taskProgressFill.style.width = pct + '%';
+            taskProgressFill.classList.toggle('complete', allDone);
+            taskProgressBar.setAttribute('aria-valuenow', pct);
+            taskProgressBar.setAttribute('aria-valuetext', text);
+            taskCountBadge.textContent = `${done}/${total}`;
+            taskCountBadge.classList.toggle('complete', allDone);
+        }
+
+        // Ojo: el texto de la tarea lo escribe el usuario, por eso siempre pasa
+        // por escapeHtml() y nunca va dentro de un atributo HTML.
+        function renderTasks() {
+            if (tasks.length === 0) {
+                taskList.innerHTML = '<p class="exam-empty">🌱 Aún no tienes tareas para hoy. ¡Agrega la primera!</p>';
+            } else {
+                taskList.innerHTML = tasks.map(t => `
+                    <div class="exam-item task-item">
+                        <label class="task-label">
+                            <input type="checkbox" class="task-check" data-task-id="${t.id}"${t.done ? ' checked' : ''}>
+                            <span class="task-box"><i class="fas fa-check"></i></span>
+                            <span class="exam-item-title task-text">${escapeHtml(t.title)}</span>
+                        </label>
+                        <button class="exam-item-delete task-delete" data-task-id="${t.id}" title="Eliminar tarea" aria-label="Eliminar tarea"><i class="fas fa-times"></i></button>
+                    </div>
+                `).join('');
+            }
+            updateTaskProgress();
+        }
+
+        // Marcar / desmarcar: la tachadura sale sola con CSS (:checked) y el
+        // contador se actualiza altiro; si el servidor falla, se revierte.
+        taskList.addEventListener('change', (e) => {
+            const checkbox = e.target.closest('.task-check');
+            if (!checkbox) return;
+            const id = parseInt(checkbox.dataset.taskId, 10);
+            const task = tasks.find(t => t.id === id);
+            if (!task) return;
+
+            const done = checkbox.checked;
+            task.done = done;
+            updateTaskProgress();
+
+            taskRequest(`/tasks/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ done })
+            })
+            .then(data => {
+                if (!data) return; // 401: ya se redirigió a /login
+                if (!data.success) throw new Error(data.error || 'Respuesta inesperada');
+            })
+            .catch(err => {
+                console.error('Error al actualizar la tarea:', err);
+                task.done = !done;
+                checkbox.checked = !done;
+                updateTaskProgress();
+                showNotice('No se pudo actualizar la tarea. Intenta de nuevo.');
+            });
+        });
+
+        taskList.addEventListener('click', (e) => {
+            const deleteBtn = e.target.closest('.task-delete');
+            if (!deleteBtn) return;
+            deleteTask(parseInt(deleteBtn.dataset.taskId, 10));
+        });
+
+        function deleteTask(id) {
+            taskRequest(`/tasks/${id}`, { method: 'DELETE' })
+                .then(data => {
+                    if (!data) return;
+                    if (data.success) {
+                        tasks = tasks.filter(t => t.id !== id);
+                        renderTasks();
+                    } else {
+                        // Por ejemplo, la tarea ya no existía: se vuelve a leer la lista real
+                        showNotice(data.error || 'No se pudo eliminar la tarea.');
+                        loadTasks();
+                    }
+                })
+                .catch(err => {
+                    console.error('Error al eliminar la tarea:', err);
+                    showNotice('No se pudo eliminar la tarea. Intenta de nuevo.');
+                });
+        }
+
+        function submitNewTask() {
+            const title = newTaskInput.value.trim();
+            if (!title) { newTaskInput.focus(); return; }
+
+            // Se limpia altiro para poder escribir la siguiente; si falla, se devuelve el texto
+            newTaskInput.value = '';
+            newTaskInput.focus();
+            const restoreText = () => { if (!newTaskInput.value) newTaskInput.value = title; };
+
+            taskRequest(`/tasks?tz_offset=${new Date().getTimezoneOffset()}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title })
+            })
+            .then(data => {
+                if (!data) return;
+                if (!data.success) {
+                    showNotice(data.error || 'No se pudo guardar la tarea.');
+                    restoreText();
+                    return;
+                }
+                loadTasks(true);
+            })
+            .catch(err => {
+                console.error('Error al guardar la tarea:', err);
+                showNotice('No se pudo guardar la tarea. Intenta de nuevo.');
+                restoreText();
+            });
+        }
+
+        confirmNewTaskBtn.addEventListener('click', submitNewTask);
+        newTaskInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitNewTask();
+            } else if (e.key === 'Escape') {
+                newTaskInput.value = '';
+                newTaskInput.blur();
+            }
+        });
+
+        // El "+" del encabezado abre la sección (si estaba minimizada) y deja el cursor listo para escribir
+        addTaskBtn.addEventListener('click', () => {
+            if (taskSection.classList.contains('collapsed')) {
+                applyTaskCollapsed(false);
+                localStorage.setItem('taskSectionCollapsed', 'false');
+            }
+            newTaskInput.focus();
+        });
+
+        // Si la página queda abierta pasada la medianoche, "hoy" cambia: se carga la lista del nuevo día
+        function reloadTasksIfDayChanged() {
+            if (tasksLoadedOn && tasksLoadedOn !== localDateStr()) loadTasks();
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) reloadTasksIfDayChanged();
+        });
+        setInterval(reloadTasksIfDayChanged, 60 * 1000);
+
         // El estudio no puede bajar de 1 minuto y el descanso no puede ser negativo
         function getValidatedMinutes(studyMode) {
             const input = studyMode ? studyTimeInput : breakTimeInput;
@@ -3072,6 +3421,7 @@
         updateDisplay();
         loadFolders();
         loadExamDates();
+        loadTasks();
         restoreTimerState();
 
         // El ícono de rango inicial viene renderizado desde el servidor (Jinja),
