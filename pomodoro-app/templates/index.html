@@ -1864,6 +1864,29 @@
         // pista falla al cargar o tarda en responder.
         audio.addEventListener('play', () => musicBtn.classList.add('playing'));
         audio.addEventListener('pause', () => musicBtn.classList.remove('playing'));
+
+        // --- Música automática al apretar "Iniciar" (se recuerda en cada dispositivo) ---
+        // Por defecto, "Iniciar" enciende la música de la app. Pero si el usuario la
+        // pausa (o otra app como Spotify se la pausa al empezar a sonar), se recuerda
+        // que en este dispositivo no la quiere automática: así "Iniciar" ya no vuelve a
+        // encenderla sola y no le quita el audio a la otra app. Se vuelve a activar
+        // cuando el usuario enciende la música con su botón. Se guarda en localStorage
+        // (por dispositivo), así que en el computador puede seguir automática y en la
+        // tablet no.
+        const MUSIC_AUTOSTART_KEY = 'musicAutoStart';
+        let musicPauseIgnoredUntil = 0; // para no confundir pausas de la propia app (ej: cambiar de pista) con pausas del usuario
+        function isMusicAutoStartEnabled() {
+            try { return localStorage.getItem(MUSIC_AUTOSTART_KEY) !== 'false'; } catch (e) { return true; }
+        }
+        function setMusicAutoStart(enabled) {
+            try { localStorage.setItem(MUSIC_AUTOSTART_KEY, String(enabled)); } catch (e) { /* sin almacenamiento: queda el valor por defecto */ }
+        }
+        audio.addEventListener('pause', () => {
+            // En modo lock in la app pausa la música por su cuenta (y la reanuda al salir):
+            // eso no cuenta como una decisión del usuario.
+            if (lockInActive || Date.now() < musicPauseIgnoredUntil) return;
+            setMusicAutoStart(false);
+        });
         audio.addEventListener('playing', () => musicBtn.classList.remove('loading'));
         audio.addEventListener('error', () => {
             musicBtn.classList.remove('playing', 'loading');
@@ -1881,6 +1904,7 @@
 
         musicBtn.addEventListener('click', () => {
             if (audio.paused) {
+                setMusicAutoStart(true); // la encendió el usuario: vuelve a ser automática
                 attemptPlay();
             } else {
                 audio.pause();
@@ -1897,6 +1921,7 @@
                 btn.classList.add('active');
 
                 const wasPlaying = !audio.paused;
+                musicPauseIgnoredUntil = Date.now() + 1000; // al recargar el <audio> algunos navegadores emiten "pause"
                 audio.src = trackBlobCache[track] || TRACKS[track];
                 audio.dataset.currentTrack = track;
                 audio.load();
@@ -2758,11 +2783,18 @@
             lockInTime.textContent = timerDisplay.textContent;
         }
 
-        function startTimer() {
+        function startTimer(autoStart) {
             if (isRunning) return;
             getAudioContext(); // Habilita el audio de los avisos sonoros (requiere gesto del usuario)
-            // En modo lock in no hay música (ni siquiera cuando arranca solo el descanso)
-            if (audio.paused && !lockInActive) { musicBtn.click(); }
+            // La música de fondo solo arranca cuando el usuario aprieta "Iniciar", y solo
+            // si no pidió quitarla (ver "Música automática" más arriba: si la pausó, o
+            // Spotify se la pausó, no se vuelve a encender sola). Cuando el descanso
+            // arranca solo (autoStart) NUNCA se toca la música: hacer audio.play() sin
+            // que el usuario lo pida hace que la tablet/celular le quite el audio a la
+            // otra app y la pause. En modo lock in tampoco hay música.
+            // Ojo: se compara con === true porque el botón "Iniciar" llama a
+            // startTimer() sin parámetros.
+            if (autoStart !== true && audio.paused && !lockInActive && isMusicAutoStartEnabled()) { attemptPlay(); }
 
             isRunning = true;
 
@@ -2800,7 +2832,7 @@
                     playStudyEndSound();
                     showNotice(`¡Bloque de estudio terminado! Ganaste ${minutesStudied} puntos 🏆`);
                     switchToBreak();
-                    startTimer(); // El descanso arranca solo
+                    startTimer(true); // El descanso arranca solo (sin tocar la música, ver startTimer)
                 } else {
                     playBreakEndSound();
                     showNotice("¡Descanso terminado! Volviendo al estudio.");
